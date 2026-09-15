@@ -325,6 +325,99 @@
     .modal-btn-cancel:hover {
       background: #e0e0e0;
     }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    .server-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: #555;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .server-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #9e9e9e;
+      flex-shrink: 0;
+    }
+
+    .server-dot.starting { background: #ffb300; }
+    .server-dot.ready { background: #4caf50; }
+    .server-dot.error { background: #f44336; }
+    .server-dot.external { background: #2196f3; }
+
+    .link-btn {
+      background: none;
+      border: none;
+      color: #667eea;
+      padding: 0;
+      min-width: auto;
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: underline;
+    }
+
+    .setup-banner {
+      background: #fff8e1;
+      border: 1px solid #ffe082;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 13px;
+      margin-bottom: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .models-content {
+      max-width: 580px;
+    }
+
+    .model-list {
+      max-height: 320px;
+      overflow-y: auto;
+      border: 1px solid #eee;
+      border-radius: 8px;
+      margin: 12px 0;
+      text-align: left;
+    }
+
+    .model-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid #f0f0f0;
+      font-size: 13px;
+    }
+
+    .model-row:last-child { border-bottom: none; }
+    .model-info { flex: 1; min-width: 0; }
+    .model-name { font-weight: 600; color: #333; overflow-wrap: anywhere; }
+    .model-meta { color: #777; font-size: 12px; }
+    .model-error { color: #b71c1c; font-size: 12px; }
+    .model-actions { display: flex; gap: 6px; align-items: center; }
+    .model-actions button, .inline-btn { min-width: auto; padding: 6px 10px; font-size: 12px; }
+    .badge-active { color: #2e7d32; font-weight: 600; font-size: 12px; }
+    .progress { width: 90px; height: 6px; background: #eee; border-radius: 3px; overflow: hidden; }
+    .progress-bar { height: 100%; background: #667eea; width: 0; }
+
+    .radio-label {
+      display: inline-flex !important;
+      align-items: center;
+      gap: 6px;
+      margin-right: 16px;
+      font-weight: normal !important;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -334,7 +427,22 @@
         <h1 style="margin: 0;">🎤 Whisper Desktop</h1>
         <p class="subtitle" style="margin: 5px 0 0 0;">Press Ctrl+Q to record and transcribe</p>
       </div>
-      <button id="settingsBtn" style="padding: 8px 16px; border: none; border-radius: 6px; background: #f0f0f0; cursor: pointer; font-size: 18px;">⚙️</button>
+      <div style="display: flex; gap: 8px;">
+        <button id="modelsBtn" title="Speech models" style="padding: 8px 16px; min-width: auto; border: none; border-radius: 6px; background: #f0f0f0; cursor: pointer; font-size: 18px;">🧠</button>
+        <button id="settingsBtn" title="Settings" style="padding: 8px 16px; min-width: auto; border: none; border-radius: 6px; background: #f0f0f0; cursor: pointer; font-size: 18px;">⚙️</button>
+      </div>
+    </div>
+
+    <div class="server-status">
+      <span class="server-dot" id="serverDot"></span>
+      <span id="serverStatusText">Checking transcription server…</span>
+      <button class="link-btn" id="serverRestartBtn" hidden>Restart</button>
+      <button class="link-btn" id="serverLogBtn" hidden>Open log</button>
+    </div>
+
+    <div class="setup-banner" id="setupBanner" hidden>
+      <span>No speech model installed yet.</span>
+      <button class="modal-btn modal-btn-save" id="setupDownloadBtn">Download recommended model (547 MB)</button>
     </div>
 
     <div class="status">
@@ -369,13 +477,28 @@
       </div>
 
       <div class="form-group">
-        <label for="apiUrlInput">API Endpoint</label>
-        <input type="text" id="apiUrlInput" placeholder="http://127.0.0.1:4444">
+        <label>Transcription server</label>
+        <label class="radio-label"><input type="radio" name="serverMode" id="serverModeBuiltin" value="builtin" style="width: auto;"> Built-in</label>
+        <label class="radio-label"><input type="radio" name="serverMode" id="serverModeExternal" value="external" style="width: auto;"> External API</label>
       </div>
 
-      <div class="form-group">
-        <label for="apiTokenInput">API Token (optional)</label>
-        <input type="password" id="apiTokenInput" placeholder="Leave empty for local API">
+      <div class="form-group" id="builtinOptions">
+        <label style="display: flex; align-items: center; cursor: pointer; user-select: none; font-weight: normal;">
+          <input type="checkbox" id="forceCpuInput" style="width: auto; margin-right: 10px; cursor: pointer;">
+          <span>Force CPU (use if GPU transcription fails)</span>
+        </label>
+      </div>
+
+      <div id="externalOptions">
+        <div class="form-group">
+          <label for="apiUrlInput">API Endpoint</label>
+          <input type="text" id="apiUrlInput" placeholder="http://127.0.0.1:4444">
+        </div>
+
+        <div class="form-group">
+          <label for="apiTokenInput">API Token (optional)</label>
+          <input type="password" id="apiTokenInput" placeholder="Leave empty for local API">
+        </div>
       </div>
 
       <div class="form-group">
@@ -398,6 +521,33 @@
       <div class="modal-buttons">
         <button class="modal-btn modal-btn-cancel" id="settingsCancelBtn">Cancel</button>
         <button class="modal-btn modal-btn-save" id="settingsSaveBtn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modelsModal" class="modal">
+    <div class="modal-content models-content">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 10px;">
+        <h2 style="margin: 0;">Speech models</h2>
+        <span id="diskInfo" class="model-meta"></span>
+      </div>
+
+      <div class="model-list" id="modelList"></div>
+
+      <div class="form-group" style="text-align: left; margin-bottom: 0;">
+        <label for="customModelUrl">Custom model (Hugging Face .bin URL)</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="customModelUrl" placeholder="https://huggingface.co/owner/repo/resolve/main/model.bin">
+          <button class="modal-btn modal-btn-save inline-btn" id="customModelBtn">Download</button>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center; margin-top: 6px;">
+          <span class="model-meta" id="customModelStatus"></span>
+          <button class="link-btn" id="customCancelBtn" hidden>Cancel</button>
+        </div>
+      </div>
+
+      <div class="modal-buttons">
+        <button class="modal-btn modal-btn-cancel" id="modelsCloseBtn">Close</button>
       </div>
     </div>
   </div>
@@ -547,6 +697,20 @@
     const apiTokenInput = document.getElementById('apiTokenInput');
     const autoMuteInput = document.getElementById('autoMuteInput');
     const micDeviceInput = document.getElementById('micDeviceInput');
+    const serverModeBuiltin = document.getElementById('serverModeBuiltin');
+    const serverModeExternal = document.getElementById('serverModeExternal');
+    const forceCpuInput = document.getElementById('forceCpuInput');
+    const builtinOptions = document.getElementById('builtinOptions');
+    const externalOptions = document.getElementById('externalOptions');
+
+    function syncServerModeUi() {
+      const external = serverModeExternal.checked;
+      externalOptions.hidden = !external;
+      builtinOptions.hidden = external;
+    }
+
+    serverModeBuiltin.addEventListener('change', syncServerModeUi);
+    serverModeExternal.addEventListener('change', syncServerModeUi);
 
     settingsBtn.addEventListener('click', async () => {
       const settings = await window.api.getSettings();
@@ -554,6 +718,10 @@
       apiUrlInput.value = settings.apiUrl || '';
       apiTokenInput.value = settings.apiToken || '';
       autoMuteInput.checked = settings.autoMuteAudio !== false; // Default to true
+      serverModeBuiltin.checked = settings.serverMode !== 'external';
+      serverModeExternal.checked = settings.serverMode === 'external';
+      forceCpuInput.checked = settings.forceCpu === true;
+      syncServerModeUi();
 
       // Load available audio devices
       try {
@@ -588,6 +756,8 @@
           apiToken: apiTokenInput.value || '',
           autoMuteAudio: autoMuteInput.checked,
           micDevice: micDeviceInput.value || 'default',
+          serverMode: serverModeExternal.checked ? 'external' : 'builtin',
+          forceCpu: forceCpuInput.checked,
         });
         // Reload settings and update display
         const settings = await window.api.getSettings();
@@ -606,6 +776,205 @@
         settingsModal.classList.remove('show');
       }
     });
+
+    // Transcription server status
+    const RECOMMENDED_MODEL_ID = 'ggml-large-v3-turbo-q5_0.bin';
+    const serverDot = document.getElementById('serverDot');
+    const serverStatusText = document.getElementById('serverStatusText');
+    const serverRestartBtn = document.getElementById('serverRestartBtn');
+    const serverLogBtn = document.getElementById('serverLogBtn');
+    const setupBanner = document.getElementById('setupBanner');
+    const setupDownloadBtn = document.getElementById('setupDownloadBtn');
+
+    function renderServerStatus(view) {
+      serverStatusText.textContent = view.text;
+      serverDot.className = 'server-dot ' + (view.mode === 'external' ? 'external' : view.state);
+      const isError = view.mode === 'builtin' && view.state === 'error';
+      serverRestartBtn.hidden = !isError;
+      serverLogBtn.hidden = !isError;
+      setupBanner.hidden = !(view.mode === 'builtin' && view.state === 'no-model');
+    }
+
+    function cleanIpcError(error) {
+      const message = error && error.message ? error.message : String(error);
+      return message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+    }
+
+    window.api.onServerStatus(renderServerStatus);
+    window.api.getServerStatus().then(renderServerStatus);
+    serverRestartBtn.addEventListener('click', () => {
+      window.api.restartServer().catch((error) => showError(cleanIpcError(error)));
+    });
+    serverLogBtn.addEventListener('click', () => window.api.openServerLog());
+    setupDownloadBtn.addEventListener('click', () => {
+      openModels();
+      startModelDownload(RECOMMENDED_MODEL_ID);
+    });
+
+    // Models modal
+    const modelsModal = document.getElementById('modelsModal');
+    const modelsBtn = document.getElementById('modelsBtn');
+    const modelsCloseBtn = document.getElementById('modelsCloseBtn');
+    const modelList = document.getElementById('modelList');
+    const diskInfo = document.getElementById('diskInfo');
+    const customModelUrl = document.getElementById('customModelUrl');
+    const customModelBtn = document.getElementById('customModelBtn');
+    const customModelStatus = document.getElementById('customModelStatus');
+    const customCancelBtn = document.getElementById('customCancelBtn');
+
+    let modelsState = { models: [], activeModelId: null, downloading: false, disk: null };
+    const progressById = new Map();
+    const errorById = new Map();
+
+    function formatBytes(bytes) {
+      if (bytes === null || bytes === undefined) return '';
+      const units = ['B', 'KB', 'MB', 'GB'];
+      let value = bytes;
+      let unit = 0;
+      while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024;
+        unit++;
+      }
+      return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+    }
+
+    function el(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
+
+    function actionButton(text, className, onClick, disabled) {
+      const button = el('button', 'modal-btn ' + className, text);
+      button.disabled = Boolean(disabled);
+      button.addEventListener('click', onClick);
+      return button;
+    }
+
+    function progressText(progress) {
+      if (progress.state === 'verifying') return 'Verifying…';
+      if (!progress.totalBytes) return formatBytes(progress.receivedBytes);
+      const percent = Math.floor((progress.receivedBytes / progress.totalBytes) * 100);
+      return `${percent}% · ${formatBytes(progress.bytesPerSec)}/s`;
+    }
+
+    function renderModelRow(model) {
+      const row = el('div', 'model-row');
+      const info = el('div', 'model-info');
+      const meta = [formatBytes(model.sizeBytes), model.label].filter(Boolean).join(' · ');
+      info.append(el('div', 'model-name', model.name), el('div', 'model-meta', meta));
+      const error = errorById.get(model.id);
+      if (error) info.append(el('div', 'model-error', error));
+
+      const actions = el('div', 'model-actions');
+      const progress = progressById.get(model.id);
+      if (progress) {
+        const bar = el('div', 'progress');
+        const fill = el('div', 'progress-bar');
+        fill.style.width = progress.totalBytes ? `${Math.floor((progress.receivedBytes / progress.totalBytes) * 100)}%` : '0%';
+        bar.append(fill);
+        actions.append(bar, el('span', 'model-meta', progressText(progress)), actionButton('Cancel', 'modal-btn-cancel', () => window.api.cancelDownload()));
+      } else if (model.installed) {
+        if (model.id === modelsState.activeModelId) {
+          actions.append(el('span', 'badge-active', 'Active'));
+        } else {
+          actions.append(actionButton('Use', 'modal-btn-save', () => selectModel(model.id)));
+        }
+        actions.append(actionButton('Delete', 'modal-btn-cancel', () => deleteModel(model)));
+      } else {
+        actions.append(actionButton(error ? 'Retry' : 'Download', 'modal-btn-save', () => startModelDownload(model.id), modelsState.downloading));
+      }
+      row.append(info, actions);
+      return row;
+    }
+
+    function renderModels() {
+      const disk = modelsState.disk;
+      diskInfo.textContent = disk ? `Disk: ${formatBytes(disk.usedBytes)} used · ${formatBytes(disk.freeBytes)} free` : '';
+      modelList.replaceChildren(...modelsState.models.map(renderModelRow));
+      customModelBtn.disabled = modelsState.downloading;
+    }
+
+    async function refreshModels() {
+      try {
+        modelsState = await window.api.listModels();
+        renderModels();
+      } catch (error) {
+        showError(cleanIpcError(error));
+      }
+    }
+
+    function openModels() {
+      modelsModal.classList.add('show');
+      refreshModels();
+    }
+
+    function startModelDownload(id) {
+      errorById.delete(id);
+      progressById.set(id, { id, receivedBytes: 0, totalBytes: null, bytesPerSec: 0, state: 'downloading' });
+      modelsState.downloading = true;
+      renderModels();
+      window.api.downloadModel(id);
+    }
+
+    async function selectModel(id) {
+      try {
+        await window.api.selectModel(id);
+      } catch (error) {
+        showError(cleanIpcError(error));
+      }
+      refreshModels();
+    }
+
+    async function deleteModel(model) {
+      if (!confirm(`Delete ${model.name}?`)) return;
+      try {
+        await window.api.deleteModel(model.id);
+      } catch (error) {
+        showError(cleanIpcError(error));
+      }
+      refreshModels();
+    }
+
+    window.api.onDownloadProgress((progress) => {
+      const active = progress.state === 'downloading' || progress.state === 'verifying';
+      if (progress.id.startsWith('custom')) {
+        customCancelBtn.hidden = !active;
+        customModelStatus.className = progress.state === 'error' ? 'model-error' : 'model-meta';
+        const labels = { done: 'Downloaded', cancelled: 'Cancelled', error: progress.error };
+        customModelStatus.textContent = active ? progressText(progress) : labels[progress.state];
+      } else if (active) {
+        progressById.set(progress.id, progress);
+      } else {
+        progressById.delete(progress.id);
+        if (progress.state === 'error') errorById.set(progress.id, progress.error);
+      }
+      modelsState.downloading = active;
+      if (active) {
+        renderModels();
+      } else {
+        refreshModels();
+      }
+    });
+
+    customModelBtn.addEventListener('click', () => {
+      const url = customModelUrl.value.trim();
+      if (!url) return;
+      customModelStatus.className = 'model-meta';
+      customModelStatus.textContent = 'Starting…';
+      modelsState.downloading = true;
+      renderModels();
+      window.api.downloadCustomModel(url);
+    });
+
+    customCancelBtn.addEventListener('click', () => window.api.cancelDownload());
+    modelsBtn.addEventListener('click', openModels);
+    modelsCloseBtn.addEventListener('click', () => modelsModal.classList.remove('show'));
+    modelsModal.addEventListener('click', (event) => {
+      if (event.target === modelsModal) modelsModal.classList.remove('show');
+    });
+    window.api.onOpenModels(openModels);
   </script>
 </body>
 </html>

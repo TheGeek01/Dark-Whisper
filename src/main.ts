@@ -3,10 +3,13 @@ import path from 'path';
 import * as fs from 'fs';
 import registerShortcuts from './services/hotkeyService';
 import { recordAudio, stopRecording, cleanupOldRecordings, getAudioDevices } from './services/recordingService';
-import { transcribeAudio, checkAPIHealth, setApiConfig } from './services/apiService';
+import { transcribeAudio, checkAPIHealth, setApiConfig, BUILTIN_TIMEOUT_MS, EXTERNAL_TIMEOUT_MS } from './services/apiService';
 import { getSettings, saveSettings } from './services/settingsService';
 import { pasteTranscriptClipboard, copyToClipboard } from './services/pasteService';
 import { saveAndMuteAudio, restoreAudio } from './services/audioControlService';
+import { cleanupStaleServer, modelManager, openServerLog, startBuiltinServer, whisperServer } from './services/whisperRuntime';
+import { recordingGate, toStatusView } from './services/serverGate';
+import type { DownloadProgress } from './services/modelManager';
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -78,6 +81,61 @@ const showSystemNotification = (title: string, body: string, autoCloseMs?: numbe
   return notification;
 };
 
+const showModelsWindow = () => {
+  mainWindow?.show();
+  mainWindow?.webContents.send('open-models');
+};
+
+const currentStatusView = () => {
+  const settings = getSettings();
+  return toStatusView(settings.serverMode, whisperServer.getStatus(), settings.apiUrl);
+};
+
+const applyApiConfig = () => {
+  const settings = getSettings();
+  if (settings.serverMode === 'builtin') {
+    // Port 1 is never listening, so requests fail fast until the server reports ready.
+    setApiConfig(whisperServer.getBaseUrl() ?? 'http://127.0.0.1:1', '', { timeoutMs: BUILTIN_TIMEOUT_MS });
+  } else {
+    setApiConfig(settings.apiUrl, settings.apiToken, { timeoutMs: EXTERNAL_TIMEOUT_MS });
+  }
+};
+
+const handleServerStatus = () => {
+  applyApiConfig();
+  const view = currentStatusView();
+  mainWindow?.webContents.send('server-status', view);
+  tray?.setToolTip(`Whisper Desktop — ${view.text}`);
+};
+
+const canStartRecording = (): boolean => {
+  const gate = recordingGate(getSettings().serverMode, whisperServer.getStatus());
+  if (gate.allow) return true;
+  if (gate.action === 'open-models') showModelsWindow();
+  showSystemNotification('Whisper Desktop', gate.message, 4000);
+  return false;
+};
+
+const runDownload = (requestedId: string, start: () => Promise<DownloadProgress>) => {
+  start()
+    .then(async (result) => {
+      if (result.state === 'done' && !getSettings().modelId) {
+        saveSettings({ modelId: result.id });
+        await startBuiltinServer();
+      }
+    })
+    .catch((error: unknown) => {
+      const progress: DownloadProgress = {
+        id: requestedId,
+        receivedBytes: 0,
+        totalBytes: null,
+        bytesPerSec: 0,
+        state: 'error',
+        error: error instanceof Error ? error.message : String(error),
+      };
+      mainWindow?.webContents.send('download-progress', progress);
+    });
+};
 
 const createTray = () => {
   try {
@@ -107,6 +165,10 @@ const createTray = () => {
       },
     },
     {
+      label: 'Models…',
+      click: showModelsWindow,
+    },
+    {
       label: 'Recording Status',
       enabled: false,
     },
@@ -124,9 +186,9 @@ const createTray = () => {
 };
 
 app.on('ready', () => {
+  if (!gotTheLock) return;
   const settings = getSettings();
   currentShortcut = settings.shortcut;
-  setApiConfig(settings.apiUrl, settings.apiToken);
 
   // Enable auto-start on Windows startup (minimized to tray)
   if (process.platform === 'win32') {
@@ -140,6 +202,20 @@ app.on('ready', () => {
   createWindow();
   createTray();
   registerShortcuts(handleRecordingToggle, settings.shortcut);
+
+  whisperServer.onStatus(handleServerStatus);
+  modelManager.onProgress((progress) => mainWindow?.webContents.send('download-progress', progress));
+  handleServerStatus();
+
+  (async () => {
+    await cleanupStaleServer();
+    await modelManager.init();
+    await startBuiltinServer();
+    if (getSettings().serverMode === 'builtin' && whisperServer.getStatus().state === 'no-model') {
+      const notification = showSystemNotification('Whisper Desktop', 'Choose a speech model to finish setup', 8000);
+      notification.on('click', showModelsWindow);
+    }
+  })().catch((error) => console.error('Failed to start transcription server:', error));
 });
 
 app.on('window-all-closed', () => {
@@ -158,6 +234,8 @@ app.on('before-quit', () => {
   if (mainWindow) {
     mainWindow.removeAllListeners('close');
   }
+  modelManager.cancelDownload();
+  whisperServer.stop();
 });
 
 const startRecordingSession = async () => {
@@ -167,12 +245,14 @@ const startRecordingSession = async () => {
   try {
     cleanupOldRecordings(7 * 24);
 
-    const isAPIHealthy = await checkAPIHealth();
-    if (!isAPIHealthy) {
-      const errorMsg = 'Whisper API is not running at http://127.0.0.1:4444. Please start the API before recording.';
-      mainWindow?.webContents.send('error', { message: errorMsg });
-      isRecording = false;
-      return;
+    if (settings.serverMode === 'external') {
+      const isAPIHealthy = await checkAPIHealth();
+      if (!isAPIHealthy) {
+        const errorMsg = `Whisper API is not running at ${settings.apiUrl}. Please start the API before recording.`;
+        mainWindow?.webContents.send('error', { message: errorMsg });
+        isRecording = false;
+        return;
+      }
     }
 
     // Mute system audio if enabled in settings
@@ -242,7 +322,9 @@ const startRecordingSession = async () => {
     const errorStr = String(error);
 
     if (errorStr.includes('ECONNREFUSED') || errorStr.includes('ENOTFOUND')) {
-      errorMessage = 'Cannot connect to Whisper API. Make sure it\'s running on http://127.0.0.1:4444';
+      errorMessage = settings.serverMode === 'builtin'
+        ? 'Cannot connect to the built-in transcription server. Try Restart in the main window.'
+        : `Cannot connect to Whisper API. Make sure it's running at ${settings.apiUrl}`;
     } else if (errorStr.includes('ENOENT') || errorStr.includes('not found')) {
       errorMessage = 'Audio file was not created. Check microphone connection.';
     } else if (errorStr.includes('Invalid response')) {
@@ -270,7 +352,7 @@ const startRecordingSession = async () => {
 const handleRecordingToggle = async () => {
   if (isRecording) {
     await stopRecording();
-  } else {
+  } else if (canStartRecording()) {
     isRecording = true;
     void startRecordingSession();
   }
@@ -283,6 +365,10 @@ ipcMain.handle('get-status', () => {
 ipcMain.handle('start-recording', async () => {
   if (isRecording) {
     mainWindow?.webContents.send('error', { message: 'Recording already in progress.' });
+    return;
+  }
+
+  if (!canStartRecording()) {
     return;
   }
 
@@ -302,13 +388,18 @@ ipcMain.handle('get-settings', () => {
   return getSettings();
 });
 
-ipcMain.handle('save-settings', (_event, settings: any) => {
+ipcMain.handle('save-settings', async (_event, settings: any) => {
+  const before = getSettings();
   saveSettings(settings);
+  const after = getSettings();
 
-  if (settings.apiUrl || settings.apiToken) {
-    const current = getSettings();
-    setApiConfig(current.apiUrl, current.apiToken);
+  if (before.forceCpu && !after.forceCpu) {
+    saveSettings({ gpuFallbackVersion: null });
   }
+  if (before.serverMode !== after.serverMode || before.forceCpu !== after.forceCpu) {
+    await startBuiltinServer();
+  }
+  handleServerStatus();
 
   if (settings.shortcut) {
     currentShortcut = settings.shortcut;
@@ -331,4 +422,52 @@ ipcMain.handle('copy-to-clipboard', async () => {
 
 ipcMain.handle('get-audio-devices', async () => {
   return await getAudioDevices();
+});
+
+ipcMain.handle('get-server-status', () => currentStatusView());
+
+ipcMain.handle('restart-server', async () => {
+  await startBuiltinServer();
+});
+
+ipcMain.handle('open-server-log', async () => {
+  await openServerLog();
+});
+
+ipcMain.handle('list-models', async () => ({
+  models: modelManager.listModels(),
+  activeModelId: getSettings().modelId,
+  downloading: modelManager.isDownloading(),
+  disk: await modelManager.getDiskInfo(),
+}));
+
+ipcMain.handle('download-model', (_event, id: string) => {
+  runDownload(id, () => modelManager.startDownload(id));
+});
+
+ipcMain.handle('download-custom-model', (_event, url: string) => {
+  runDownload('custom', () => modelManager.startCustomDownload(url));
+});
+
+ipcMain.handle('cancel-download', () => {
+  modelManager.cancelDownload();
+});
+
+ipcMain.handle('delete-model', async (_event, id: string) => {
+  if (!modelManager.isValidId(id)) {
+    throw new Error('Unknown model');
+  }
+  if (getSettings().modelId === id) {
+    whisperServer.setNoModel();
+    saveSettings({ modelId: null });
+  }
+  await modelManager.deleteModel(id);
+});
+
+ipcMain.handle('select-model', async (_event, id: string) => {
+  if (!modelManager.getModelPath(id)) {
+    throw new Error('Model is not installed');
+  }
+  saveSettings({ modelId: id });
+  await startBuiltinServer();
 });

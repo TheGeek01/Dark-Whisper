@@ -53,14 +53,130 @@ jobs:
           files: ./coverage/coverage-final.json
           fail_ci_if_error: false
 
+  build-whisper:
+    name: Build whisper.cpp server
+    runs-on: windows-latest
+    env:
+      VULKAN_VERSION: 1.4.357.0
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read whisper.cpp version
+        id: version
+        shell: pwsh
+        run: |
+          $tag = (Get-Content whisper.version -Raw).Trim()
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+
+      - name: Restore cached build
+        id: cache
+        uses: actions/cache@v6
+        with:
+          path: whisper-dist
+          key: whisper-${{ steps.version.outputs.tag }}-vulkan-${{ env.VULKAN_VERSION }}-v1
+
+      - name: Checkout whisper.cpp
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@v7
+        with:
+          repository: ggml-org/whisper.cpp
+          ref: ${{ steps.version.outputs.tag }}
+          path: whisper.cpp
+
+      - name: Install Vulkan SDK
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/vulkansdk-windows-X64-${env:VULKAN_VERSION}.exe"
+          & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
+
+      - name: Build CPU and Vulkan servers
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        working-directory: whisper.cpp
+        run: |
+          $common = @(
+            '-DCMAKE_BUILD_TYPE=Release',
+            '-DBUILD_SHARED_LIBS=ON',
+            '-DWHISPER_BUILD_TESTS=OFF',
+            '-DWHISPER_BUILD_EXAMPLES=ON',
+            '-DWHISPER_BUILD_SERVER=ON',
+            '-DGGML_NATIVE=OFF',
+            '-DGGML_BACKEND_DL=ON',
+            '-DGGML_CPU_ALL_VARIANTS=ON'
+          )
+          cmake -B build-cpu @common
+          if ($LASTEXITCODE -ne 0) { throw 'cmake configure (cpu) failed' }
+          cmake --build build-cpu --config Release -j 4
+          if ($LASTEXITCODE -ne 0) { throw 'cmake build (cpu) failed' }
+          cmake -B build-vulkan @common -DGGML_VULKAN=ON
+          if ($LASTEXITCODE -ne 0) { throw 'cmake configure (vulkan) failed' }
+          cmake --build build-vulkan --config Release -j 4
+          if ($LASTEXITCODE -ne 0) { throw 'cmake build (vulkan) failed' }
+
+          foreach ($backend in 'cpu', 'vulkan') {
+            $out = "../whisper-dist/$backend"
+            New-Item -ItemType Directory -Force $out | Out-Null
+            Copy-Item "build-$backend/bin/Release/whisper-server.exe" $out
+            Copy-Item "build-$backend/bin/Release/*.dll" $out
+          }
+          Set-Content -Path ../whisper-dist/VERSION -Value '${{ steps.version.outputs.tag }}' -NoNewline
+
+      - name: Smoke test CPU server
+        shell: pwsh
+        run: |
+          curl.exe -sL -o "$env:RUNNER_TEMP/ggml-tiny.en.bin" https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
+          $hash = (Get-FileHash "$env:RUNNER_TEMP/ggml-tiny.en.bin" -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne '921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f') { throw "tiny.en checksum mismatch: $hash" }
+          curl.exe -sL -o "$env:RUNNER_TEMP/jfk.wav" "https://raw.githubusercontent.com/ggml-org/whisper.cpp/${{ steps.version.outputs.tag }}/samples/jfk.wav"
+
+          $server = Start-Process -FilePath whisper-dist/cpu/whisper-server.exe -PassThru -NoNewWindow -ArgumentList @(
+            '-m', "$env:RUNNER_TEMP/ggml-tiny.en.bin", '--host', '127.0.0.1', '--port', '18080',
+            '--inference-path', '/v1/audio/transcriptions')
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 60; $i++) {
+              try {
+                if ((Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18080/health).StatusCode -eq 200) { $ready = $true; break }
+              } catch {}
+              Start-Sleep -Seconds 1
+            }
+            if (-not $ready) { throw 'whisper-server did not become ready' }
+            $text = curl.exe -s -F "file=@$env:RUNNER_TEMP/jfk.wav" -F response_format=json http://127.0.0.1:18080/v1/audio/transcriptions
+            Write-Output $text
+            if ($text -notmatch 'ask not') { throw 'Unexpected transcription output' }
+          } finally {
+            Stop-Process -Id $server.Id -Force
+          }
+
+      - name: Check Vulkan server launches
+        shell: pwsh
+        run: |
+          & whisper-dist/vulkan/whisper-server.exe --help *> $null
+          if ($LASTEXITCODE -ne 0) { throw "vulkan whisper-server --help exited with $LASTEXITCODE" }
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: whisper-server
+          path: whisper-dist
+          if-no-files-found: error
+
   build-and-release:
     name: Build and Release
     runs-on: windows-latest
-    needs: [lint, test]
+    needs: [lint, test, build-whisper]
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: false
     steps:
       - uses: actions/checkout@v7
+
+      - name: Download whisper.cpp server
+        uses: actions/download-artifact@v8
+        with:
+          name: whisper-server
+          path: resources/whisper
 
       - name: Setup Node.js
         uses: actions/setup-node@v7

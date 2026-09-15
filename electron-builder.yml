@@ -7,9 +7,18 @@ directories:
 
 files:
   - dist/**/*
+  - "!dist/__tests__"
+  - "!dist/**/*.test.*"
+  - "!dist/**/*.map"
   - assets/**/*
   - public/**/*
   - package.json
+
+extraResources:
+  - from: resources/whisper
+    to: whisper
+    filter:
+      - "**/*"
 
 asar: true
 
@@ -33,11 +42,11 @@ nsis:
   runAfterFinish: true
   artifactName: ${productName}.${ext}
 
-# Reduce installer size by excluding unnecessary locales
 extraMetadata:
   main: dist/main.js
 
-# GitHub Releases publishing configuration
 publish:
   provider: github
+  owner: dniasoff
+  repo: whisper-desktop
   releaseType: release

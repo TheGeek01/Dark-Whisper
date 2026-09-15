@@ -1,4 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { DownloadProgress, ModelEntry } from './services/modelManager';
+import type { ServerStatusView } from './services/serverGate';
+
+interface ModelList {
+  models: ModelEntry[];
+  activeModelId: string | null;
+  downloading: boolean;
+  disk: { usedBytes: number; freeBytes: number };
+}
 
 contextBridge.exposeInMainWorld('api', {
   onTranscriptionComplete: (callback: (data: { transcription: string }) => void) => {
@@ -42,6 +51,24 @@ contextBridge.exposeInMainWorld('api', {
   getAudioDevices: () => {
     return ipcRenderer.invoke('get-audio-devices');
   },
+  getServerStatus: (): Promise<ServerStatusView> => ipcRenderer.invoke('get-server-status'),
+  restartServer: (): Promise<void> => ipcRenderer.invoke('restart-server'),
+  openServerLog: (): Promise<void> => ipcRenderer.invoke('open-server-log'),
+  listModels: (): Promise<ModelList> => ipcRenderer.invoke('list-models'),
+  downloadModel: (id: string): Promise<void> => ipcRenderer.invoke('download-model', id),
+  downloadCustomModel: (url: string): Promise<void> => ipcRenderer.invoke('download-custom-model', url),
+  cancelDownload: (): Promise<void> => ipcRenderer.invoke('cancel-download'),
+  deleteModel: (id: string): Promise<void> => ipcRenderer.invoke('delete-model', id),
+  selectModel: (id: string): Promise<void> => ipcRenderer.invoke('select-model', id),
+  onServerStatus: (callback: (status: ServerStatusView) => void) => {
+    ipcRenderer.on('server-status', (_event, status: ServerStatusView) => callback(status));
+  },
+  onDownloadProgress: (callback: (progress: DownloadProgress) => void) => {
+    ipcRenderer.on('download-progress', (_event, progress: DownloadProgress) => callback(progress));
+  },
+  onOpenModels: (callback: () => void) => {
+    ipcRenderer.on('open-models', () => callback());
+  },
 });
 
 declare global {
@@ -58,6 +85,18 @@ declare global {
       saveSettings: (settings: any) => Promise<any>;
       copyToClipboard: () => Promise<{ success: boolean; message?: string }>;
       getAudioDevices: () => Promise<Array<{ id: string; name: string }>>;
+      getServerStatus: () => Promise<ServerStatusView>;
+      restartServer: () => Promise<void>;
+      openServerLog: () => Promise<void>;
+      listModels: () => Promise<ModelList>;
+      downloadModel: (id: string) => Promise<void>;
+      downloadCustomModel: (url: string) => Promise<void>;
+      cancelDownload: () => Promise<void>;
+      deleteModel: (id: string) => Promise<void>;
+      selectModel: (id: string) => Promise<void>;
+      onServerStatus: (callback: (status: ServerStatusView) => void) => void;
+      onDownloadProgress: (callback: (progress: DownloadProgress) => void) => void;
+      onOpenModels: (callback: () => void) => void;
     };
   }
 }

@@ -2,11 +2,15 @@ import axios, { AxiosInstance } from 'axios';
 import * as fs from 'fs';
 import FormData from 'form-data';
 
+export const EXTERNAL_TIMEOUT_MS = 30_000;
+export const BUILTIN_TIMEOUT_MS = 300_000;
+
 class WhisperAPI {
-  private client: AxiosInstance = axios.create();
+  private client!: AxiosInstance;
   private apiUrl: string = 'http://127.0.0.1:4444';
   private apiToken: string = '';
   private language: string = 'en';
+  private timeoutMs: number = EXTERNAL_TIMEOUT_MS;
 
   constructor() {
     this.updateClient();
@@ -20,15 +24,16 @@ class WhisperAPI {
 
     this.client = axios.create({
       baseURL: this.apiUrl,
-      timeout: 30000,
+      timeout: this.timeoutMs,
       headers,
     });
   }
 
-  setConfig(apiUrl: string, apiToken: string, language: string = 'en') {
+  setConfig(apiUrl: string, apiToken: string, language: string = 'en', timeoutMs: number = EXTERNAL_TIMEOUT_MS) {
     this.apiUrl = apiUrl;
     this.apiToken = apiToken;
     this.language = language;
+    this.timeoutMs = timeoutMs;
     this.updateClient();
   }
 
@@ -148,8 +153,8 @@ export async function checkAPIHealth(): Promise<boolean> {
 }
 
 /**
- * Configure API endpoint, token, and language
+ * Configure API endpoint, token, language, and request timeout
  */
-export function setApiConfig(apiUrl: string, apiToken: string, language: string = 'en'): void {
-  whisperAPI.setConfig(apiUrl, apiToken, language);
+export function setApiConfig(apiUrl: string, apiToken: string, options: { language?: string; timeoutMs?: number } = {}): void {
+  whisperAPI.setConfig(apiUrl, apiToken, options.language ?? 'en', options.timeoutMs ?? EXTERNAL_TIMEOUT_MS);
 }
