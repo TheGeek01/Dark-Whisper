@@ -42,20 +42,17 @@ describe('Settings Service', () => {
 
   describe('Settings Modification', () => {
     it('should allow updating shortcut', () => {
-      let shortcut = 'Ctrl+Q';
-      shortcut = 'Alt+W';
+      const shortcut = 'Alt+W';
       expect(shortcut).toBe('Alt+W');
     });
 
     it('should allow updating API URL', () => {
-      let apiUrl = 'http://127.0.0.1:4444';
-      apiUrl = 'https://api.openai.com/v1';
+      const apiUrl = 'https://api.openai.com/v1';
       expect(apiUrl).toBe('https://api.openai.com/v1');
     });
 
     it('should allow updating API token', () => {
-      let token = '';
-      token = 'sk-1234567890abcdef';
+      const token = 'sk-1234567890abcdef';
       expect(token).toBe('sk-1234567890abcdef');
     });
   });

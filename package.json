@@ -1,15 +1,15 @@
 {
   "name": "whisper-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Desktop application for recording audio and transcribing with OpenAI's Whisper API",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "start": "npm run build && electron .",
-    "dev": "concurrently \"npm run watch\" \"wait-on dist/main.js && electron .\"",
-    "lint": "eslint src --ext .ts",
-    "lint:fix": "eslint src --ext .ts --fix",
+    "start": "npm run build && install-electron && electron .",
+    "dev": "install-electron && concurrently \"npm run watch\" \"wait-on dist/main.js && electron .\"",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
@@ -83,29 +83,30 @@
     }
   },
   "devDependencies": {
-    "@electron/rebuild": "^4.0.1",
+    "@electron/rebuild": "^4.2.0",
+    "@eslint/js": "^10.0.1",
     "@types/jest": "^30.0.0",
-    "@types/node": "^24.10.4",
-    "@typescript-eslint/eslint-plugin": "^8.46.4",
-    "@typescript-eslint/parser": "^8.46.4",
-    "concurrently": "^9.2.1",
-    "electron": "^39.1.2",
-    "electron-builder": "^26.0.12",
-    "eslint": "^9.39.1",
-    "jest": "^30.2.0",
-    "ts-jest": "^29.4.5",
+    "@types/node": "^24.13.4",
+    "@typescript-eslint/eslint-plugin": "^8.70.0",
+    "@typescript-eslint/parser": "^8.70.0",
+    "concurrently": "^10.0.5",
+    "electron": "^44.4.0",
+    "electron-builder": "^26.15.3",
+    "eslint": "^10.10.0",
+    "jest": "^30.5.1",
+    "ts-jest": "^29.4.12",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3",
-    "wait-on": "^9.0.3"
+    "typescript": "~6.0.3",
+    "wait-on": "^9.1.0"
   },
   "dependencies": {
-    "@nut-tree-fork/nut-js": "^4.2.6",
-    "axios": "^1.13.2",
+    "@nut-tree-fork/libnut": "^4.2.6",
+    "axios": "^1.20.0",
     "electron-store": "^11.0.2",
-    "form-data": "^4.0.4",
+    "form-data": "^4.0.6",
     "node-mic": "^1.0.1"
   },
   "optionalDependencies": {
-    "@nut-tree-fork/node-mac-permissions": "^2.2.0"
+    "@nut-tree-fork/node-mac-permissions": "^2.2.1"
   }
 }

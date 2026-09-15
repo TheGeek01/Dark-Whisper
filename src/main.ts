@@ -238,7 +238,7 @@ const startRecordingSession = async () => {
       transcriptionNotification = null;
     }
 
-    let errorMessage = 'Failed to record or transcribe';
+    let errorMessage: string;
     const errorStr = String(error);
 
     if (errorStr.includes('ECONNREFUSED') || errorStr.includes('ENOTFOUND')) {
@@ -321,9 +321,9 @@ ipcMain.handle('save-settings', (_event, settings: any) => {
   return { success: true };
 });
 
-ipcMain.handle('copy-to-clipboard', () => {
+ipcMain.handle('copy-to-clipboard', async () => {
   if (lastTranscription) {
-    copyToClipboard(lastTranscription);
+    await copyToClipboard(lastTranscription);
     return { success: true };
   }
   return { success: false, message: 'No transcription to copy' };

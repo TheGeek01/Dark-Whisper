@@ -1,5 +1,5 @@
 import { clipboard } from "electron";
-import { keyboard, Key } from "@nut-tree-fork/nut-js";
+import { libnut } from "@nut-tree-fork/libnut/dist/import_libnut";
 
 /**
  * Sleep utility for async delays
@@ -17,13 +17,13 @@ async function writeClipboardWithVerification(text: string): Promise<boolean> {
 
   for (let i = 0; i < maxRetries; i++) {
     try {
-      clipboard.writeText(text);
+      await clipboard.writeText(text);
 
       // Wait for clipboard propagation
       await sleep(50);
 
       // Verify write succeeded
-      const readBack = clipboard.readText();
+      const readBack = await clipboard.readText();
       if (readBack === text) {
         return true;
       }
@@ -40,10 +40,10 @@ async function writeClipboardWithVerification(text: string): Promise<boolean> {
 }
 
 /**
- * Send paste keystroke using nut-js
+ * Send paste keystroke using libnut
  */
-async function sendPaste(): Promise<void> {
-  await keyboard.type(Key.LeftControl, Key.V);
+function sendPaste(): void {
+  libnut.keyTap('v', 'control');
 }
 
 /**
@@ -63,7 +63,7 @@ export async function pasteTranscriptClipboard(
 
   try {
     if (restoreClipboard) {
-      previousClipboard = clipboard.readText();
+      previousClipboard = await clipboard.readText();
     }
 
     const success = await writeClipboardWithVerification(text);
@@ -72,7 +72,7 @@ export async function pasteTranscriptClipboard(
     }
 
     await sleep(200);
-    await sendPaste();
+    sendPaste();
     await sleep(500);
 
     if (restoreClipboard && previousClipboard) {
@@ -81,7 +81,7 @@ export async function pasteTranscriptClipboard(
   } catch (error) {
     if (restoreClipboard && previousClipboard) {
       try {
-        clipboard.writeText(previousClipboard);
+        await clipboard.writeText(previousClipboard);
       } catch (restoreError) {
         // Silent fail
       }
@@ -94,6 +94,6 @@ export async function pasteTranscriptClipboard(
  * Copy text to clipboard without pasting
  * Useful for manual copy operations
  */
-export function copyToClipboard(text: string): void {
-  clipboard.writeText(text);
+export async function copyToClipboard(text: string): Promise<void> {
+  await clipboard.writeText(text);
 }
