@@ -209,7 +209,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = "${{ github.ref_name }}"
-          $files = Get-ChildItem release -File | Where-Object { $_.Extension -in '.exe', '.blockmap', '.yml' }
+          $files = Get-ChildItem release -File | Where-Object { $_.Extension -in '.exe', '.blockmap' -or $_.Name -eq 'latest.yml' }
           if (-not $files) { throw "No installer artifacts found in release/" }
           $files | ForEach-Object { Write-Output ("publishing " + $_.Name + " (" + [math]::Round($_.Length / 1MB, 1) + " MB)") }
 
