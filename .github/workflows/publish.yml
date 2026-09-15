@@ -195,9 +195,31 @@ jobs:
       - name: Build TypeScript
         run: npm run build
 
-      - name: Build and Publish Windows installers
-        run: npm run build:windows -- --publish always
+      # Build only. electron-builder's own publisher creates one GitHub release
+      # per uploaded artifact when the release does not exist yet, which splits
+      # the installer and its metadata across two releases sharing the tag.
+      - name: Build Windows installer
+        run: npm run build:windows -- --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $files = Get-ChildItem release -File | Where-Object { $_.Extension -in '.exe', '.blockmap', '.yml' }
+          if (-not $files) { throw "No installer artifacts found in release/" }
+          $files | ForEach-Object { Write-Output ("publishing " + $_.Name + " (" + [math]::Round($_.Length / 1MB, 1) + " MB)") }
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag @($files.FullName) --clobber
+          } else {
+            gh release create $tag @($files.FullName) --title $tag --generate-notes
+          }
+          if ($LASTEXITCODE -ne 0) { throw "publishing the release failed" }
+
+          gh release view $tag --json assets --jq '.assets[].name'
 
