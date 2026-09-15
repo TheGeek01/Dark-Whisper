@@ -40,7 +40,7 @@ nsis:
   uninstallerIcon: assets/whisper.ico
   installerHeaderIcon: assets/whisper.ico
   runAfterFinish: true
-  artifactName: ${productName}.${ext}
+  artifactName: Dark-Whisper-Setup-${version}.${ext}
 
 extraMetadata:
   main: dist/main.js
