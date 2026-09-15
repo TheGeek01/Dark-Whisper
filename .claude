@@ -1,87 +1,74 @@
-# Whisper Desktop Application - Project Memory
+# Whisper Desktop (Dark-Whisper) - Project Memory
 
 ## Project Overview
-**Whisper Desktop** is a lightweight Windows desktop application that provides a notification icon interface for recording audio and transcribing speech to text using the Whisper Assistant API.
+**Whisper Desktop** is a Windows desktop app (Electron) that records audio on a global hotkey, transcribes it, and pastes the text into the active window. Transcription runs on a **bundled whisper.cpp server** by default; an external Whisper-compatible API (OpenAI or self-hosted) is also supported.
+
+Repository: https://github.com/TheGeek01/Dark-Whisper (fork of dniasoff/whisper-desktop). Current version: 1.1.0.
 
 ### Key Features
-- Global keyboard shortcut (F9) to start/stop audio recording
-- System notification icon (tray icon) for quick access
-- Integration with Whisper Assistant API (http://127.0.0.1:4444/docs)
-- Records audio and sends to transcription API
-- Results can be pasted/used in any application
-
-### Core Specifications
-- **Platform**: Windows
-- **Target**: Desktop application (likely Electron or similar)
-- **API Backend**: Whisper Assistant API v0.1.0 (OAS 3.1)
-- **Keyboard Shortcut**: F9
-- **Interface**: Notification/Tray Icon
-
-## API Endpoints
-Base URL: `http://127.0.0.1:4444`
-
-### Available Endpoints
-- `GET /` - Root
-- `GET /v1/health` - Health check
-- `POST /v1/audio/transcriptions` - Transcribe Audio (primary endpoint)
-- `POST /transcribe` - Transcribe Alias (alternative endpoint)
-
-### Request/Response Structure
-- **Audio Input**: Multi-part form data with audio file
-- **Request Models**:
-  - `Body_transcribe_alias_transcribe_post`
-  - `Body_transcribe_audio_v1_audio_transcriptions_post`
-- **Error Models**: `HTTPValidationError`, `ValidationError`
+- Global hotkey (default `Ctrl+Q`): press to start, press again to stop; 5-minute cap
+- Built-in whisper.cpp server, supervised by the app (start, health-check, restart, stop)
+- Speech model manager: curated Hugging Face GGML models pinned by SHA256, plus custom model URLs
+- GPU acceleration via Vulkan with automatic CPU fallback; "Force CPU" setting
+- Auto-paste with clipboard preservation; auto-mute of system audio while recording
+- Tray icon with status tooltip, Show/Hide, Models…, Exit
+- Auto-start on Windows login; recordings auto-deleted after 7 days
 
 ## Technical Stack
-- ✅ Framework: **Electron** 39.1.2
-- ✅ Language: **TypeScript** 5.9.3
-- ✅ Audio Recording: **node-record-lpcm16** 1.0.1
-- ✅ HTTP Client: **axios** 1.13.2
-- ✅ Tray Icon: **Electron built-in**
-- ✅ Global Hotkeys: **Electron globalShortcut API**
-- ✅ Form Data: **form-data** 4.0.4
-- ✅ Bundler: **TypeScript Compiler** with Webpack support
+- **Framework**: Electron 44.4.0
+- **Language**: TypeScript 6.0.3 (`module: node20`, CommonJS output)
+- **Transcription**: whisper.cpp `b5130` (tag pinned in `whisper.version`), CPU + Vulkan builds
+- **Audio**: node-mic 1.0.1 (bundles sox.exe; 16 kHz mono WAV)
+- **Keystrokes**: @nut-tree-fork/libnut 4.2.6 (`keyTap('v', 'control')`)
+- **HTTP**: axios 1.20.0 | **Settings**: electron-store 11.0.2 | **Multipart**: form-data 4.0.6
+- **Build**: electron-builder 26.15.3 (config only in `electron-builder.yml`)
+- **Tests**: Jest 30.5.1 + ts-jest — 123 tests, 11 suites | **Lint**: ESLint 10
 
-### Project Structure
-```
-whisper-desktop/
-├── src/
-│   ├── main.ts              # Electron main process
-│   ├── preload.ts           # Preload script for IPC
-│   └── services/
-│       ├── hotkeyService.ts # F9 hotkey registration
-│       ├── audioService.ts  # Audio recording logic
-│       └── apiService.ts    # Whisper API integration
-├── public/
-│   └── index.html           # UI template
-├── dist/                    # Compiled JS (generated)
-├── package.json
-├── tsconfig.json
-└── .gitignore
-```
+## Architecture
+Logic lives in Electron-free modules; one wiring module touches Electron. Jest cannot load Electron, so tests must never import `electron`, `electron-store`, `settingsService`, `whisperRuntime` or `main`.
 
-## Architecture Overview
-1. **Main Process** (main.ts): Electron window, tray icon, app lifecycle
-2. **Hotkey Service** (hotkeyService.ts): Registers F9 global shortcut
-3. **Audio Service** (audioService.ts): Records audio via node-record-lpcm16, saves to userData/recordings
-4. **API Service** (apiService.ts): Posts audio to Whisper API, returns transcription
-5. **Preload Script** (preload.ts): Safe IPC bridge between renderer and main process
-6. **UI** (index.html): Shows recording status, displays transcription, real-time updates
+- **main.ts** — window, tray, hotkey, lifecycle, all IPC handlers, recording gate
+- **preload.ts** — `contextBridge` API; type-only imports so the bundle requires only `electron`
+- **public/index.html** — vanilla JS UI: status line, setup banner, settings modal, models modal; dynamic text via `textContent` only
+
+Electron-free services (unit-tested): `modelCatalog`, `modelManager`, `whisperServer`, `serverOutput`, `serverPaths`, `serverGate`, `settingsMigration`.
+Electron-bound services: `whisperRuntime` (spawn, ports, `/health`, PID file, log file, stale cleanup), `settingsService`, `apiService`, `recordingService`, `audioControlService`, `pasteService`, `hotkeyService`.
+
+## Transcription API (same for built-in and external)
+- `GET /health` (built-in) or `GET /v1/health` (external) — readiness
+- `POST /v1/audio/transcriptions` — multipart `file`, returns `{ "text": ... }`
+- Timeouts: built-in 300 000 ms, external 30 000 ms
+
+## Server Lifecycle (whisperServer.ts)
+States: `no-model` | `starting` | `ready` | `error` | `stopped`.
+- Args: `-m <model file name> --host 127.0.0.1 --port <free port> --inference-path /v1/audio/transcriptions`, spawned with `cwd` = the model's directory. **The relative `-m` plus `cwd` is deliberate**: whisper-server reads argv as ANSI but decodes the path as UTF-8, so absolute paths break on non-ASCII profiles (e.g. `C:\Users\José`).
+- Readiness: poll `/health` every 500 ms up to 120 s (the model loads before the port opens).
+- GPU label comes from the server log (`whisper_backend_init_gpu: using … backend` vs `no GPU found`), not from the chosen binary.
+- Vulkan process exiting before readiness (without a model-load error) → retry on CPU and remember per version. Model-load failure → error, no fallback.
+- Crash restarts: 1 s, 5 s, 15 s, then error; counter resets after 5 min healthy.
+- Every launch bumps a generation counter; stale callbacks are ignored.
+- PID written to `userData/whisper-server.pid`; a stale process is killed only if its image is `whisper-server.exe`.
+- Binary resolution: `WHISPER_SERVER_DIR` (Vulkan, dev only) → `process.resourcesPath/whisper/<backend>/` when packaged → `<repo>/resources/whisper/<backend>/` in dev. Version read from `whisper/VERSION`.
+
+## Model Handling (modelCatalog.ts / modelManager.ts)
+- Curated list pinned to size + SHA256; recommended model `ggml-large-v3-turbo-q5_0.bin` (547 MB).
+- Custom URLs must match `https://huggingface.co/<owner>/<repo>/resolve/<rev>/<file>.bin`; id is `custom/<owner>__<repo>__<file>`; SHA256 read from `X-Linked-ETag` on Hugging Face's 302 (no-redirect HEAD first).
+- Download to `<file>.part`, verify SHA256 + GGML magic (`readUInt32LE(0) === 0x67676d6c`), then rename. One download at a time; progress throttled to 250 ms; stray `.part` files swept at startup.
+
+## Settings (electron-store, config.json)
+`serverMode` (`builtin`/`external`), `modelId`, `forceCpu`, `gpuFallbackVersion`, `shortcut`, `micDevice`, `autoMuteAudio`, `apiUrl`, `apiToken`.
+Migration: if `serverMode` is absent and `config.json` already existed → `external` (upgrades keep working); fresh installs → `builtin`. `serverMode` is deliberately NOT in electron-store defaults, or the migration check would never fire.
+
+## Data Locations (`%APPDATA%\whisper-desktop\`)
+`config.json`, `models\`, `recordings\`, `logs\whisper-server.log`, `whisper-server.pid`.
+
+## CI / Release
+`.github/workflows/publish.yml` on a `v*.*.*` tag: lint → test (Ubuntu) → build-whisper (Windows: pinned Vulkan SDK 1.4.357.0, compiles CPU + Vulkan `whisper-server` from `whisper.version`, smoke-tests a real transcription, caches per version) → build-and-release (downloads the artifact to `resources/whisper/`, builds NSIS, publishes a Release).
 
 ## Development Notes
-- API runs locally on port 4444
-- Ensure health check before recording attempts
-- Handle audio file format compatibility with API
-- Consider error handling for API timeouts
-- Record user preference for F9 hotkey behavior
-
-## Next Steps
-1. Choose framework and technology stack
-2. Setup project structure
-3. Implement audio recording with F9 hotkey
-4. Create tray icon interface
-5. Integrate with Whisper Assistant API
-6. Test transcription workflow
-7. Package for Windows distribution
-
+- Re-check `serverOutput.classifyServerLine` strings when bumping `whisper.version`.
+- Electron 44 clipboard calls are async — always await them.
+- In Git Bash, prefix manual server commands with `MSYS_NO_PATHCONV=1`, or `/v1/...` args get rewritten into Windows paths.
+- Vulkan builds only come from CI; locally use `npm run whisper:fetch` (CPU) or `WHISPER_SERVER_DIR`.
+- Tests use real temp directories and injected fakes; no real processes or network, so they pass on Ubuntu CI.
+- Design spec and implementation plan: `docs/superpowers/`.
