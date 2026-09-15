@@ -553,6 +553,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 For issues, feature requests, or questions:
 
 1. **GitHub Issues:** https://github.com/TheGeek01/Dark-Whisper/issues
+2. **Email:** ghostline@blackhaven-dynamics.net
 
 When reporting a transcription problem, please include the status line text and, if the server errored, the contents of `%APPDATA%\whisper-desktop\logs\whisper-server.log`.
 
