@@ -47,6 +47,6 @@ extraMetadata:
 
 publish:
   provider: github
-  owner: dniasoff
-  repo: whisper-desktop
+  owner: TheGeek01
+  repo: Dark-Whisper
   releaseType: release

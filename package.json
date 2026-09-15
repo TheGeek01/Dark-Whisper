@@ -21,7 +21,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dniasoff/whisper-desktop.git"
+    "url": "git+https://github.com/TheGeek01/Dark-Whisper.git"
   },
   "keywords": [
     "whisper",
@@ -33,9 +33,9 @@
   "license": "MIT",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/dniasoff/whisper-desktop/issues"
+    "url": "https://github.com/TheGeek01/Dark-Whisper/issues"
   },
-  "homepage": "https://github.com/dniasoff/whisper-desktop#readme",
+  "homepage": "https://github.com/TheGeek01/Dark-Whisper#readme",
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",
     "@eslint/js": "^10.0.1",

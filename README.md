@@ -104,8 +104,8 @@ Run your own local Whisper API server on Windows using [whisper-api](https://git
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/dniasoff/whisper-desktop.git
-cd whisper-desktop
+git clone https://github.com/TheGeek01/Dark-Whisper.git
+cd Dark-Whisper
 ```
 
 2. Install dependencies:
@@ -410,7 +410,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 For issues, feature requests, or questions:
 
-1. **GitHub Issues:** https://github.com/dniasoff/whisper-desktop/issues
+1. **GitHub Issues:** https://github.com/TheGeek01/Dark-Whisper/issues
 2. **Email:** support@whisperdesktop.dev
 
 ## Acknowledgments
