@@ -692,9 +692,11 @@ When reporting a transcription problem, please include the status line text and,
 
 ## Changelog
 
-### Unreleased
+### Version 1.2.0 (Latest)
 
 - Three-pane workspace: vault library with folders and search, live document view, session panel with per-block refinement state; quick dictation moves to the header
+- Documents are sanitised and a strict Content-Security-Policy blocks scripts and remote or network (UNC) images
+- The default vault folder is created on first start
 - Renamed to Dark-Whisper; user data moves to `%APPDATA%\Dark-Whisper` on first start
 - Live sessions: whisper-stream writes a Markdown document in a vault folder as you speak
 - Completed blocks are re-transcribed with the main model, and never overwrite your edits
