@@ -17,14 +17,14 @@ Today a recording is transcribed only after it ends, and the text is pasted into
 
 **Non-goals (this stage)**
 - The three-pane UI, the live document view, the library sidebar and the contextual panel (stage 2). Stage 1 adds a deliberately plain session strip to the existing window.
-- Speaker detection. `stream.exe` supports `-tdrz` (tinydiarize) with a suitable model, which is the likely future path; nothing in this stage depends on it.
+- Speaker detection. `whisper-stream.exe` supports `-tdrz` (tinydiarize) with a suitable model, which is the likely future path; nothing in this stage depends on it.
 - macOS/Linux, cloud sync, transcription history search UI beyond plain text search.
 
 ## 2. Decisions
 
 | Topic | Decision |
 |---|---|
-| Live engine | whisper.cpp `stream.exe` (SDL2 capture, VAD sliding window), supervised like `whisper-server` |
+| Live engine | whisper.cpp `whisper-stream.exe` (SDL2 capture, VAD sliding window), supervised like `whisper-server` |
 | Quality | Completed ~2-minute blocks re-transcribed by the existing supervised server and replaced in the file |
 | Long sessions | Refinement happens *during* the session, block by block; nothing waits at the end |
 | Files | A vault folder the user chooses; one `.md` per session; real subfolders as projects |
@@ -38,7 +38,7 @@ Today a recording is transcribed only after it ends, and the text is pasted into
 
 ```
                     ┌──────────────── main process ────────────────┐
- stream.exe ◄──────►│ streamEngine ──► sessionService ──► documentStore ──► vault/*.md
+ whisper-stream.exe ◄──────►│ streamEngine ──► sessionService ──► documentStore ──► vault/*.md
  (SDL2 mic,         │      │               │    ▲                 │
   live model)       │ streamOutput         │    │ refined text    │
                     │  (pure parser)       ▼    │                 │
@@ -59,7 +59,7 @@ Reused unchanged: `whisperServer`/`whisperRuntime`, `apiService`, `settingsServi
 ### 4.1 Process invocation
 
 ```
-stream.exe -m <liveModelPath> --step 0 --length 10000 -vth 0.6 -t <threads>
+whisper-stream.exe -m <liveModelPath> --step 0 --length 10000 -vth 0.6 -t <threads>
            -l <language> -c <captureId> -sa -f live.txt
 ```
 - `--step 0` selects VAD sliding-window mode: a segment is emitted when speech is detected and the window closes, which is what makes text appear as you speak.
@@ -179,9 +179,9 @@ The live model is downloaded through the existing Models screen; `base.en` is al
 
 ## 11. Packaging and CI
 
-- `stream.exe` and `SDL2.dll` ship in `resources/whisper/<backend>/` alongside `whisper-server.exe`.
-- The CI `build-whisper` job gains, before the cmake step: download `SDL2-devel-<ver>-VC.zip` from libsdl-org, extract, set `SDL2_DIR`, and add `-DWHISPER_SDL2=ON` to the common cmake args (mirroring whisper.cpp's own Windows release job). SDL2 version is pinned in the workflow. The copy step takes `whisper-server.exe`, `stream.exe` and `*.dll`.
-- `scripts/fetch-whisper.js` copies `stream.exe` from the official zip in addition to `whisper-server.exe` (both are present in `whisper-bin-x64.zip`, as is `SDL2.dll`).
+- `whisper-stream.exe` and `SDL2.dll` ship in `resources/whisper/<backend>/` alongside `whisper-server.exe`.
+- The CI `build-whisper` job gains, before the cmake step: download `SDL2-devel-<ver>-VC.zip` from libsdl-org, extract, set `SDL2_DIR`, and add `-DWHISPER_SDL2=ON` to the common cmake args (mirroring whisper.cpp's own Windows release job). SDL2 version is pinned in the workflow. The copy step takes `whisper-server.exe`, `whisper-stream.exe` and `*.dll`.
+- `scripts/fetch-whisper.js` copies `whisper-stream.exe` from the official zip in addition to `whisper-server.exe` (both are present in `whisper-bin-x64.zip`, as is `SDL2.dll`).
 - Cache key gains the SDL2 version.
 
 ## 12. Stage-1 UI (temporary)
@@ -200,13 +200,13 @@ New IPC: `session-start`, `session-pause`, `session-resume`, `session-stop`, `se
 - `streamEngine`: fake process + fake timers — ready detection, pause/resume, crash backoff and manifest growth, 60 s readiness timeout, synchronous stop.
 - `micMuteService` parsing; settings migration planning.
 
-**CI:** `stream.exe --help` exits 0, and a short run under `SDL_AUDIODRIVER=dummy` reaches `[Start speaking]` and exits cleanly — proving the binary and `SDL2.dll` ship correctly.
+**CI:** `whisper-stream.exe --help` exits 0, and a short run under `SDL_AUDIODRIVER=dummy` reaches `[Start speaking]` and exits cleanly — proving the binary and `SDL2.dll` ship correctly.
 
 **Manual (Windows, with a microphone)**
 1. Start a session, speak; text appears within ~2 s and the `.md` grows on disk.
 2. Let a block complete; its text visibly improves when refinement lands.
 3. Mute with a hardware key → `Paused (mic muted)`; unmute → resumes.
-4. Kill `stream.exe` mid-session → restart, gap marker, session continues.
+4. Kill `whisper-stream.exe` mid-session → restart, gap marker, session continues.
 5. Edit the file in Obsidian mid-session → refinement pauses with a notice, appends continue.
 6. A long session (target 1-2 hours) stays responsive; memory flat; audio cleaned up after refinement.
 7. Quick dictation still pastes into another app, and is refused during a session.
@@ -219,4 +219,4 @@ New IPC: `session-start`, `session-pause`, `session-resume`, `session-stop`, `se
 - **SDL device indices shift** as devices appear and disappear — mitigated by storing names, but a rename in Windows will still lose the binding.
 - **Refinement churn.** Text changing under the reader is intended but unfamiliar; stage 2's UI should make it legible (e.g. a brief highlight).
 - **Disk use** of ~115 MB per session hour until refinement completes.
-- **`stream.exe` is an example program.** It is maintained upstream but not a stable API: its output format and flags can change between whisper.cpp versions, so `streamOutput` is the single place that knows them, and bumping `whisper.version` requires re-checking it (same rule as the server's log strings).
+- **`whisper-stream.exe` is an example program.** It is maintained upstream but not a stable API: its output format and flags can change between whisper.cpp versions, so `streamOutput` is the single place that knows them, and bumping `whisper.version` requires re-checking it (same rule as the server's log strings).

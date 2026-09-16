@@ -43,7 +43,8 @@ async function main() {
     fs.rmSync(outDir, { recursive: true, force: true });
     fs.mkdirSync(outDir, { recursive: true });
     for (const file of fs.readdirSync(releaseDir)) {
-      if (file === 'whisper-server.exe' || file.toLowerCase().endsWith('.dll')) {
+      const keep = file === 'whisper-server.exe' || file === 'whisper-stream.exe' || file.toLowerCase().endsWith('.dll');
+      if (keep) {
         fs.copyFileSync(path.join(releaseDir, file), path.join(outDir, file));
       }
     }

@@ -58,6 +58,7 @@ jobs:
     runs-on: windows-latest
     env:
       VULKAN_VERSION: 1.4.357.0
+      SDL2_VERSION: 2.30.9
     steps:
       - uses: actions/checkout@v7
 
@@ -73,7 +74,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: whisper-dist
-          key: whisper-${{ steps.version.outputs.tag }}-vulkan-${{ env.VULKAN_VERSION }}-v1
+          key: whisper-${{ steps.version.outputs.tag }}-vulkan-${{ env.VULKAN_VERSION }}-sdl2-${{ env.SDL2_VERSION }}-v1
 
       - name: Checkout whisper.cpp
         if: steps.cache.outputs.cache-hit != 'true'
@@ -92,6 +93,19 @@ jobs:
           Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
           Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
 
+      - name: Fetch SDL2
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/libsdl-org/SDL/releases/download/release-${env:SDL2_VERSION}/SDL2-devel-${env:SDL2_VERSION}-VC.zip"
+          curl.exe -sL -o "$env:RUNNER_TEMP/sdl2.zip" $url
+          if ($LASTEXITCODE -ne 0) { throw "SDL2 download failed: $url" }
+          7z x "$env:RUNNER_TEMP/sdl2.zip" -o"$env:RUNNER_TEMP" | Out-Null
+          $sdlRoot = "$env:RUNNER_TEMP/SDL2-${env:SDL2_VERSION}"
+          if (-not (Test-Path "$sdlRoot/cmake")) { throw "SDL2 layout unexpected under $sdlRoot" }
+          Add-Content $env:GITHUB_ENV "SDL2_DIR=$sdlRoot/cmake"
+          Add-Content $env:GITHUB_ENV "SDL2_LIB_DIR=$sdlRoot/lib/x64"
+
       - name: Build CPU and Vulkan servers
         if: steps.cache.outputs.cache-hit != 'true'
         shell: pwsh
@@ -105,7 +119,8 @@ jobs:
             '-DWHISPER_BUILD_SERVER=ON',
             '-DGGML_NATIVE=OFF',
             '-DGGML_BACKEND_DL=ON',
-            '-DGGML_CPU_ALL_VARIANTS=ON'
+            '-DGGML_CPU_ALL_VARIANTS=ON',
+            '-DWHISPER_SDL2=ON',
           )
           cmake -B build-cpu @common
           if ($LASTEXITCODE -ne 0) { throw 'cmake configure (cpu) failed' }
@@ -120,7 +135,9 @@ jobs:
             $out = "../whisper-dist/$backend"
             New-Item -ItemType Directory -Force $out | Out-Null
             Copy-Item "build-$backend/bin/Release/whisper-server.exe" $out
+            Copy-Item "build-$backend/bin/Release/whisper-stream.exe" $out
             Copy-Item "build-$backend/bin/Release/*.dll" $out
+            Copy-Item "$env:SDL2_LIB_DIR/SDL2.dll" $out
           }
           Set-Content -Path ../whisper-dist/VERSION -Value '${{ steps.version.outputs.tag }}' -NoNewline
 
@@ -156,6 +173,14 @@ jobs:
         run: |
           & whisper-dist/vulkan/whisper-server.exe --help *> $null
           if ($LASTEXITCODE -ne 0) { throw "vulkan whisper-server --help exited with $LASTEXITCODE" }
+
+      - name: Check whisper-stream binaries launch
+        shell: pwsh
+        run: |
+          foreach ($backend in 'cpu', 'vulkan') {
+            $out = & "whisper-dist/$backend/whisper-stream.exe" --help 2>&1 | Out-String
+            if ($out -notmatch 'capture device') { throw "$backend whisper-stream.exe --help did not print usage" }
+          }
 
       - uses: actions/upload-artifact@v7
         with:

@@ -4,9 +4,9 @@
 
 **Goal:** Turn Dark-Whisper into a dictation workspace: a live transcription engine writes a Markdown file as you speak, completed blocks are quietly re-transcribed at higher quality, and the app is rebranded — all behind a deliberately plain UI that stage 2 replaces.
 
-**Architecture:** whisper.cpp's `stream.exe` runs as a third supervised child process (same injected-dependency pattern as the existing `whisperServer`), emitting finalized segments on stdout. A session service appends each segment to a `.md` file in a user-chosen vault, closes a block every 2 minutes, and enqueues that block for refinement: its audio is sliced out of the session WAV and POSTed to the already-running `whisper-server`. Mic mute and in-app pause are one concept kept in sync through a Windows Core Audio shim.
+**Architecture:** whisper.cpp's `whisper-stream.exe` runs as a third supervised child process (same injected-dependency pattern as the existing `whisperServer`), emitting finalized segments on stdout. A session service appends each segment to a `.md` file in a user-chosen vault, closes a block every 2 minutes, and enqueues that block for refinement: its audio is sliced out of the session WAV and POSTed to the already-running `whisper-server`. Mic mute and in-app pause are one concept kept in sync through a Windows Core Audio shim.
 
-**Tech Stack:** Electron 44, TypeScript 6 (CommonJS, `module: node20`), Jest 30 + ts-jest, whisper.cpp `b5130` (`whisper-server.exe` + `stream.exe` + SDL2), axios, electron-store 11, PowerShell 7 for the mute shim.
+**Tech Stack:** Electron 44, TypeScript 6 (CommonJS, `module: node20`), Jest 30 + ts-jest, whisper.cpp `b5130` (`whisper-server.exe` + `whisper-stream.exe` + SDL2), axios, electron-store 11, PowerShell 7 for the mute shim.
 
 **Spec:** `docs/superpowers/specs/2026-09-15-dark-whisper-live-sessions-design.md`
 
@@ -16,7 +16,7 @@
 - Windows x64 only for packaging; unit tests must also pass on `ubuntu-latest`, so no test may spawn a real process, touch a real microphone, or call Windows-only commands.
 - Electron cannot load under Jest: files under `src/__tests__/` must never import `electron`, `electron-store`, `settingsService`, `whisperRuntime`, `streamRuntime`, `appIdentity`, or `main`.
 - Product name is exactly **Dark-Whisper**; `appId` stays `com.whisperdesktop.app`; installer artifact stays `Dark-Whisper-Setup-${version}.${ext}`.
-- Engine invocation is exactly: `stream.exe -m <liveModelPath> --step 0 --length 10000 -vth 0.6 -t <threads> -l <language> -c <captureId> -sa -f live.txt`, working directory `userData/sessions/<sessionId>/`, plus `-ng` when CPU is forced.
+- Engine invocation is exactly: `whisper-stream.exe -m <liveModelPath> --step 0 --length 10000 -vth 0.6 -t <threads> -l <language> -c <captureId> -sa -f live.txt`, working directory `userData/sessions/<sessionId>/`, plus `-ng` when CPU is forced.
 - Engine ready marker is the stdout line `[Start speaking]`; readiness timeout 60 000 ms; crash restart delays reuse `RESTART_DELAYS_MS` (1000, 5000, 15000) then `error`.
 - Saved audio is `YYYYMMDDHHMMSS.wav`, 16 kHz, 16-bit, mono → 32 000 bytes/sec, 44-byte WAV header.
 - Block length default 2 minutes (`blockMinutes`), measured on the audio clock. Block marker format: `<!-- dw:block <n> t=<startSec>-<endSec> -->`.
@@ -31,8 +31,8 @@
 |---|---|---|
 | `src/services/userDataMigration.ts` | Create | Pure: plan which legacy user-data entries to move |
 | `src/appIdentity.ts` | Create | Sets app name and runs the user-data migration before anything reads paths |
-| `src/services/streamOutput.ts` | Create | Pure: parse `stream.exe` stdout/stderr — segments, device list, ready, errors |
-| `src/services/streamEngine.ts` | Create | Supervisor state machine for `stream.exe` (injected deps) |
+| `src/services/streamOutput.ts` | Create | Pure: parse `whisper-stream.exe` stdout/stderr — segments, device list, ready, errors |
+| `src/services/streamEngine.ts` | Create | Supervisor state machine for `whisper-stream.exe` (injected deps) |
 | `src/services/streamRuntime.ts` | Create | Electron/Node wiring for the engine: spawn, session dirs, audio manifest |
 | `src/services/documentStore.ts` | Create | Pure-ish: vault `.md` files — frontmatter, append, block replace, hash guard, search |
 | `src/services/blockMath.ts` | Create | Pure: block time ranges → audio manifest files and byte offsets; WAV slice headers |
@@ -40,13 +40,13 @@
 | `src/services/blockRefiner.ts` | Create | Slice audio, POST to the server, return replacement text; queue + memory guard |
 | `src/services/micMuteService.ts` | Create | Read/set Windows mic mute via a PowerShell Core Audio shim |
 | `src/services/micMuteOutput.ts` | Create | Pure: parse the shim's output |
-| `src/services/serverPaths.ts` | Modify | Resolve `stream.exe` as well as `whisper-server.exe` |
+| `src/services/serverPaths.ts` | Modify | Resolve `whisper-stream.exe` as well as `whisper-server.exe` |
 | `src/services/settingsService.ts` | Modify | New settings keys |
 | `src/main.ts` | Modify | Identity import first, session IPC, hotkey mode rules, tray label |
 | `src/preload.ts` | Modify | Session bridge methods and events |
 | `public/index.html` | Modify | Temporary session strip; rebranded strings |
-| `scripts/fetch-whisper.js` | Modify | Also copy `stream.exe` |
-| `.github/workflows/publish.yml` | Modify | SDL2 dev fetch + `-DWHISPER_SDL2=ON`, copy `stream.exe` |
+| `scripts/fetch-whisper.js` | Modify | Also copy `whisper-stream.exe` |
+| `.github/workflows/publish.yml` | Modify | SDL2 dev fetch + `-DWHISPER_SDL2=ON`, copy `whisper-stream.exe` |
 | `electron-builder.yml`, `package.json` | Modify | Product name, package name |
 | `README.md`, `QUICKSTART.md`, `DEVELOPMENT.md`, `SETUP_SUMMARY.txt`, `.claude` | Modify | Rebrand + new behaviour |
 
@@ -275,7 +275,7 @@ Run: `git status --short`.
 
 ---
 
-### Task 2: Ship `stream.exe` and SDL2
+### Task 2: Ship `whisper-stream.exe` and SDL2
 
 **Files:**
 - Modify: `src/services/serverPaths.ts`
@@ -286,7 +286,7 @@ Run: `git status --short`.
 **Interfaces:**
 - Consumes: `Backend`, `BinaryLocations`, `whisperResourceDir` (existing in `serverPaths.ts`).
 - Produces:
-  - `const STREAM_EXE = 'stream.exe'`
+  - `const STREAM_EXE = 'whisper-stream.exe'`
   - `candidateStreamPaths(backend: Backend, loc: BinaryLocations): string[]`
   - `resolveStreamBinary(backend: Backend, loc: BinaryLocations, exists: (p: string) => boolean): string | null`
 
@@ -295,8 +295,8 @@ Run: `git status --short`.
 Append to `src/__tests__/serverPaths.test.ts` (inside the existing `describe('serverPaths', …)`):
 
 ```ts
-  it('resolves stream.exe next to the server binary', () => {
-    const packagedStream = path.join('/app/resources', 'whisper', 'cpu', 'stream.exe');
+  it('resolves whisper-stream.exe next to the server binary', () => {
+    const packagedStream = path.join('/app/resources', 'whisper', 'cpu', 'whisper-stream.exe');
     expect(candidateStreamPaths('cpu', packaged)).toEqual([packagedStream]);
     expect(resolveStreamBinary('cpu', packaged, (p) => p === packagedStream)).toBe(packagedStream);
     expect(resolveStreamBinary('cpu', packaged, () => false)).toBeNull();
@@ -305,10 +305,10 @@ Append to `src/__tests__/serverPaths.test.ts` (inside the existing `describe('se
   it('honours WHISPER_SERVER_DIR for the vulkan stream binary only', () => {
     const loc = { ...dev, envDir: '/local/vulkan-build' };
     expect(candidateStreamPaths('vulkan', loc)).toEqual([
-      path.join('/local/vulkan-build', 'stream.exe'),
-      path.join('/repo', 'resources', 'whisper', 'vulkan', 'stream.exe'),
+      path.join('/local/vulkan-build', 'whisper-stream.exe'),
+      path.join('/repo', 'resources', 'whisper', 'vulkan', 'whisper-stream.exe'),
     ]);
-    expect(candidateStreamPaths('cpu', loc)).toEqual([path.join('/repo', 'resources', 'whisper', 'cpu', 'stream.exe')]);
+    expect(candidateStreamPaths('cpu', loc)).toEqual([path.join('/repo', 'resources', 'whisper', 'cpu', 'whisper-stream.exe')]);
   });
 ```
 
@@ -324,7 +324,7 @@ Expected: FAIL — `candidateStreamPaths is not a function`.
 In `src/services/serverPaths.ts`, add the export and generalise the existing candidate builder. Replace the body of `candidateServerPaths` and add the stream variants:
 
 ```ts
-export const STREAM_EXE = 'stream.exe';
+export const STREAM_EXE = 'whisper-stream.exe';
 
 function candidatePaths(backend: Backend, loc: BinaryLocations, exe: string): string[] {
   const candidates: string[] = [];
@@ -355,20 +355,20 @@ Leave `resolveServerBinary` as it is — it already calls `candidateServerPaths`
 Run: `npx jest src/__tests__/serverPaths.test.ts`
 Expected: PASS (5 tests).
 
-- [ ] **Step 5: Copy `stream.exe` in the dev fetch script**
+- [ ] **Step 5: Copy `whisper-stream.exe` in the dev fetch script**
 
 In `scripts/fetch-whisper.js`, change the copy filter:
 
 ```js
     for (const file of fs.readdirSync(releaseDir)) {
-      const keep = file === 'whisper-server.exe' || file === 'stream.exe' || file.toLowerCase().endsWith('.dll');
+      const keep = file === 'whisper-server.exe' || file === 'whisper-stream.exe' || file.toLowerCase().endsWith('.dll');
       if (keep) {
         fs.copyFileSync(path.join(releaseDir, file), path.join(outDir, file));
       }
     }
 ```
 
-- [ ] **Step 6: Build `stream.exe` in CI**
+- [ ] **Step 6: Build `whisper-stream.exe` in CI**
 
 In `.github/workflows/publish.yml`, in the `build-whisper` job:
 
@@ -414,7 +414,7 @@ and the copy loop becomes:
             $out = "../whisper-dist/$backend"
             New-Item -ItemType Directory -Force $out | Out-Null
             Copy-Item "build-$backend/bin/Release/whisper-server.exe" $out
-            Copy-Item "build-$backend/bin/Release/stream.exe" $out
+            Copy-Item "build-$backend/bin/Release/whisper-stream.exe" $out
             Copy-Item "build-$backend/bin/Release/*.dll" $out
             Copy-Item "$env:SDL2_LIB_DIR/SDL2.dll" $out
           }
@@ -427,28 +427,28 @@ Add a check after the existing "Check Vulkan server launches" step:
         shell: pwsh
         run: |
           foreach ($backend in 'cpu', 'vulkan') {
-            $out = & "whisper-dist/$backend/stream.exe" --help 2>&1 | Out-String
-            if ($out -notmatch 'capture device') { throw "$backend stream.exe --help did not print usage" }
+            $out = & "whisper-dist/$backend/whisper-stream.exe" --help 2>&1 | Out-String
+            if ($out -notmatch 'capture device') { throw "$backend whisper-stream.exe --help did not print usage" }
           }
 ```
 
-(`stream.exe` prints its usage to stderr and exits 0, and the usage text contains `capture device`.)
+(`whisper-stream.exe` prints its usage to stderr and exits 0, and the usage text contains `capture device`.)
 
-**Divergence from spec §13, deliberate:** the spec also suggested starting `stream.exe` under `SDL_AUDIODRIVER=dummy` in CI. The dummy driver exposes no *capture* device, so such a run fails at `SDL_OpenAudioDevice` and can never reach `[Start speaking]` — it would test nothing and fail confusingly. The `--help` check proves what CI can prove: that the binary and `SDL2.dll` were built and shipped. Real microphone behaviour is covered by the Task 5 probe and the manual checklist.
+**Divergence from spec §13, deliberate:** the spec also suggested starting `whisper-stream.exe` under `SDL_AUDIODRIVER=dummy` in CI. The dummy driver exposes no *capture* device, so such a run fails at `SDL_OpenAudioDevice` and can never reach `[Start speaking]` — it would test nothing and fail confusingly. The `--help` check proves what CI can prove: that the binary and `SDL2.dll` were built and shipped. Real microphone behaviour is covered by the Task 5 probe and the manual checklist.
 
 - [ ] **Step 7: Verify locally**
 
 ```bash
 npm run whisper:fetch
-ls resources/whisper/cpu | grep -iE "stream.exe|SDL2.dll"
-resources/whisper/cpu/stream.exe --help 2>&1 | grep -c "capture device"
+ls resources/whisper/cpu | grep -iE "whisper-stream.exe|SDL2.dll"
+resources/whisper/cpu/whisper-stream.exe --help 2>&1 | grep -c "capture device"
 node -e "require('js-yaml').load(require('fs').readFileSync('.github/workflows/publish.yml','utf8'));console.log('workflow yaml ok')"
 npm run build && npm test && npm run lint
 ```
 
-Expected: `stream.exe` and `SDL2.dll` both present; the usage grep prints `1`; workflow parses; build/tests/lint clean.
+Expected: `whisper-stream.exe` and `SDL2.dll` both present; the usage grep prints `1`; workflow parses; build/tests/lint clean.
 
-If `stream.exe` is missing from the fetched zip, stop and report — the plan assumes `whisper-bin-x64.zip` for tag `b5130` contains it (verified: it does).
+If `whisper-stream.exe` is missing from the fetched zip, stop and report — the plan assumes `whisper-bin-x64.zip` for tag `b5130` contains it (verified: it does).
 
 - [ ] **Step 8: Checkpoint (no commit)**
 
@@ -456,7 +456,7 @@ Run: `git status --short` — `resources/` must not appear (gitignored).
 
 ---
 
-### Task 3: Parse `stream.exe` output
+### Task 3: Parse `whisper-stream.exe` output
 
 **Files:**
 - Create: `src/services/streamOutput.ts`
@@ -481,7 +481,7 @@ import { parseStreamLine, stripAnsi, isNoiseSegment, READY_MARKER } from '../ser
 
 describe('streamOutput', () => {
   describe('stripAnsi', () => {
-    it('removes the redraw sequences stream.exe emits', () => {
+    it('removes the redraw sequences whisper-stream.exe emits', () => {
       expect(stripAnsi('\u001b[2K\rhello')).toBe('hello');
       expect(stripAnsi('plain')).toBe('plain');
     });
@@ -583,7 +583,7 @@ export type StreamEvent =
   | { kind: 'capture-failed' }
   | { kind: 'model-load-failed' };
 
-// stream.exe redraws its provisional line with CSI sequences.
+// whisper-stream.exe redraws its provisional line with CSI sequences.
 const ANSI = /\u001b\[[0-9;]*[A-Za-z]/g;
 
 export function stripAnsi(line: string): string {
@@ -641,7 +641,7 @@ Run: `git status --short`.
 
 ---
 
-### Task 4: `stream.exe` supervisor
+### Task 4: `whisper-stream.exe` supervisor
 
 **Files:**
 - Create: `src/services/streamEngine.ts`
@@ -703,7 +703,7 @@ const OPTS = {
 function setup() {
   const procs: FakeProcess[] = [];
   const deps = {
-    resolveBinary: jest.fn((): string | null => 'C:/whisper/cpu/stream.exe'),
+    resolveBinary: jest.fn((): string | null => 'C:/whisper/cpu/whisper-stream.exe'),
     spawnStream: jest.fn((_binary: string, _args: string[], _cwd: string) => {
       const p = new FakeProcess();
       procs.push(p);
@@ -753,7 +753,7 @@ describe('StreamEngine', () => {
   it('spawns and reaches listening on the ready marker', async () => {
     const { engine, deps, procs } = setup();
     await engine.start(OPTS);
-    expect(deps.spawnStream).toHaveBeenCalledWith('C:/whisper/cpu/stream.exe', buildStreamArgs(OPTS), 'C:/sessions/s1');
+    expect(deps.spawnStream).toHaveBeenCalledWith('C:/whisper/cpu/whisper-stream.exe', buildStreamArgs(OPTS), 'C:/sessions/s1');
     expect(engine.getStatus().state).toBe('starting');
 
     procs[0].out('[Start speaking]');
@@ -1060,7 +1060,7 @@ export class StreamEngine {
     const generation = ++this.generation;
     const binary = this.deps.resolveBinary();
     if (!binary) {
-      this.fail('Live transcription is not installed (stream.exe is missing)');
+      this.fail('Live transcription is not installed (whisper-stream.exe is missing)');
       return;
     }
 
@@ -1192,7 +1192,7 @@ describe('sessionPaths', () => {
     expect(newSessionId(new Date(2026, 8, 15, 14, 32, 4))).toBe('20260915-143204');
   });
 
-  it('spots the audio file stream.exe just created', () => {
+  it('spots the audio file whisper-stream.exe just created', () => {
     expect(pickNewAudioFile(['live.txt'], ['live.txt', '20260915143204.wav'])).toBe('20260915143204.wav');
   });
 
@@ -1231,7 +1231,7 @@ export function sessionDirName(id: string): string {
   return id;
 }
 
-// stream.exe names its WAV after the local clock, so the new name is whatever appeared.
+// whisper-stream.exe names its WAV after the local clock, so the new name is whatever appeared.
 export function pickNewAudioFile(before: string[], after: string[]): string | null {
   const previous = new Set(before);
   const added = after.filter((name) => !previous.has(name) && name.toLowerCase().endsWith('.wav'));
@@ -1312,7 +1312,7 @@ function spawnStream(binary: string, args: string[], cwd: string): StreamProcess
       };
       child.on('exit', (code) => report(code));
       child.on('error', (error) => {
-        console.error('stream.exe process error:', error);
+        console.error('whisper-stream.exe process error:', error);
         report(null);
       });
     },
@@ -2024,7 +2024,7 @@ Expected: FAIL — `Cannot find module '../services/blockMath'`.
 Create `src/services/blockMath.ts`:
 
 ```ts
-// stream.exe --save-audio writes 16 kHz, 16-bit, mono PCM: 32 000 bytes per second.
+// whisper-stream.exe --save-audio writes 16 kHz, 16-bit, mono PCM: 32 000 bytes per second.
 export const SAMPLE_RATE = 16_000;
 export const BYTES_PER_SAMPLE = 2;
 export const BYTES_PER_SECOND = SAMPLE_RATE * BYTES_PER_SAMPLE;
@@ -3284,7 +3284,7 @@ streamEngine.onSegment((segment) => {
 streamEngine.onLaunch((launch) => {
   if (!sessionId) return;
   const before = manifest.map((m) => m.file);
-  // stream.exe creates its WAV as it starts; give it a moment, then record the new name.
+  // whisper-stream.exe creates its WAV as it starts; give it a moment, then record the new name.
   setTimeout(() => {
     const after = currentAudioFiles(sessionId!);
     const added = after.filter((f) => f.toLowerCase().endsWith('.wav') && !before.includes(f)).sort();
@@ -3690,7 +3690,7 @@ Expected: build clean, all suites pass, 0 lint errors, 0 vulnerabilities.
 
 ```bash
 npm run whisper:fetch && npm run ensure-mac-perms && npm run build && npx electron-builder --win --dir
-ls "release/win-unpacked/resources/whisper/cpu/stream.exe" "release/win-unpacked/resources/whisper/cpu/SDL2.dll"
+ls "release/win-unpacked/resources/whisper/cpu/whisper-stream.exe" "release/win-unpacked/resources/whisper/cpu/SDL2.dll"
 ELECTRON_ENABLE_LOGGING=1 timeout 25 "release/win-unpacked/Dark-Whisper.exe" > "$TEMP/packaged.log" 2>&1; echo "exit: $?"
 grep -iE "Uncaught|ReferenceError|TypeError|Cannot find module" "$TEMP/packaged.log"
 ```
@@ -3698,7 +3698,7 @@ Expected: both binaries present; exit 124; no script errors. (The executable nam
 
 - [ ] **Step 3: Update the documentation**
 
-Fold stage 1 into the docs: sessions and the vault in README (new "Recording a session" section, the new settings, `%APPDATA%\Dark-Whisper` paths and the migration note), the session flow and `stream.exe` contract in DEVELOPMENT (including that `streamOutput.ts` is the only place that knows the output format), `npm run stream:probe` in QUICKSTART, and refreshed module lists in SETUP_SUMMARY and `.claude`. Rename "Whisper Desktop" to "Dark-Whisper" throughout.
+Fold stage 1 into the docs: sessions and the vault in README (new "Recording a session" section, the new settings, `%APPDATA%\Dark-Whisper` paths and the migration note), the session flow and `whisper-stream.exe` contract in DEVELOPMENT (including that `streamOutput.ts` is the only place that knows the output format), `npm run stream:probe` in QUICKSTART, and refreshed module lists in SETUP_SUMMARY and `.claude`. Rename "Whisper Desktop" to "Dark-Whisper" throughout.
 
 - [ ] **Step 4: Report**
 

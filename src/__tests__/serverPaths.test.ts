@@ -1,5 +1,11 @@
 import * as path from 'path';
-import { candidateServerPaths, resolveServerBinary, whisperResourceDir } from '../services/serverPaths';
+import {
+  candidateServerPaths,
+  candidateStreamPaths,
+  resolveServerBinary,
+  resolveStreamBinary,
+  whisperResourceDir,
+} from '../services/serverPaths';
 
 describe('serverPaths', () => {
   const dev = { resourcesPath: '/electron/resources', appPath: '/repo', isPackaged: false };
@@ -23,5 +29,21 @@ describe('serverPaths', () => {
     const cpu = path.join('/app/resources', 'whisper', 'cpu', 'whisper-server.exe');
     expect(resolveServerBinary('cpu', packaged, (p) => p === cpu)).toBe(cpu);
     expect(resolveServerBinary('vulkan', packaged, () => false)).toBeNull();
+  });
+
+  it('resolves whisper-stream.exe next to the server binary', () => {
+    const packagedStream = path.join('/app/resources', 'whisper', 'cpu', 'whisper-stream.exe');
+    expect(candidateStreamPaths('cpu', packaged)).toEqual([packagedStream]);
+    expect(resolveStreamBinary('cpu', packaged, (p) => p === packagedStream)).toBe(packagedStream);
+    expect(resolveStreamBinary('cpu', packaged, () => false)).toBeNull();
+  });
+
+  it('honours WHISPER_SERVER_DIR for the vulkan stream binary only', () => {
+    const loc = { ...dev, envDir: '/local/vulkan-build' };
+    expect(candidateStreamPaths('vulkan', loc)).toEqual([
+      path.join('/local/vulkan-build', 'whisper-stream.exe'),
+      path.join('/repo', 'resources', 'whisper', 'vulkan', 'whisper-stream.exe'),
+    ]);
+    expect(candidateStreamPaths('cpu', loc)).toEqual([path.join('/repo', 'resources', 'whisper', 'cpu', 'whisper-stream.exe')]);
   });
 });
