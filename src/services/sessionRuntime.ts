@@ -183,6 +183,13 @@ export function addSessionNotice(text: string): void {
   emit();
 }
 
+export function clearSessionNotice(text: string): void {
+  const index = notices.indexOf(text);
+  if (index === -1) return;
+  notices.splice(index, 1);
+  emit();
+}
+
 function recordBlock(
   ctx: SessionContext,
   blockIndex: number,

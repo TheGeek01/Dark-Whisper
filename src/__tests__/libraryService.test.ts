@@ -71,6 +71,19 @@ describe('LibraryService.resolve', () => {
     expect(() => v.service.resolve('', 'document')).toThrow(LibraryPathError);
     expect(() => v.service.resolve('../elsewhere', 'folder')).toThrow(LibraryPathError);
   });
+
+  it('rejects hidden segments and paths containing a colon, but accepts ordinary paths', () => {
+    const v = vault();
+    expect(() => v.service.resolve('.obsidian/x.md', 'document')).toThrow(LibraryPathError);
+    expect(() => v.service.resolve('a.txt:x.md', 'document')).toThrow(LibraryPathError);
+    expect(() => v.service.resolve('Work/.trash/a.md', 'document')).toThrow(LibraryPathError);
+    expect(v.service.resolve('Clients/a.md', 'document')).toBe(path.join(v.root, 'Clients', 'a.md'));
+  });
+
+  it('rejects a relative path that escapes the vault on Windows', () => {
+    if (process.platform !== 'win32') return;
+    expect(() => vault().service.resolve('..\\x.md', 'document')).toThrow(LibraryPathError);
+  });
 });
 
 describe('LibraryService changes', () => {

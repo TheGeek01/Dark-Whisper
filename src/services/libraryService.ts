@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { DocumentContent, FolderNode, LibraryDocument, LibrarySearchHit, LibraryTree } from '../shared/api';
 import { DocumentStore, parseFrontmatter, slugify } from './documentStore';
+import { isHiddenPath } from './libraryWatch';
 
 export class LibraryPathError extends Error {}
 
@@ -54,6 +55,12 @@ export class LibraryService {
   resolve(relative: string, kind: 'document' | 'folder'): string {
     if (typeof relative !== 'string' || path.isAbsolute(relative) || /^[a-zA-Z]:/.test(relative)) {
       throw new LibraryPathError(`Not a vault path: ${String(relative)}`);
+    }
+    if (isHiddenPath(relative)) {
+      throw new LibraryPathError(`Hidden path: ${relative}`);
+    }
+    if (relative.includes(':')) {
+      throw new LibraryPathError(`Not a vault path: ${relative}`);
     }
     const absolute = path.resolve(this.vaultPath, relative);
     const back = path.relative(this.vaultPath, absolute);

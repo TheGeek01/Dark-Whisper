@@ -2,12 +2,13 @@ import { BrowserWindow, dialog, ipcMain, OpenDialogOptions, shell } from 'electr
 import * as fs from 'fs';
 import type { LibraryChange } from '../shared/api';
 import { LibraryService } from './libraryService';
-import { ChangeBatcher, diffSnapshots, Snapshot, snapshotTree } from './libraryWatch';
-import { addSessionNotice, documentMoved, isRecordingDocument } from './sessionRuntime';
+import { ChangeBatcher, diffSnapshots, isHiddenPath, Snapshot, snapshotTree } from './libraryWatch';
+import { addSessionNotice, clearSessionNotice, documentMoved, isRecordingDocument } from './sessionRuntime';
 import { getSettings } from './settingsService';
 
 const DEBOUNCE_MS = 300;
 const POLL_MS = 5000;
+export const POLLING_NOTICE = `Watching the vault by polling every ${POLL_MS / 1000} s`;
 
 const changeListeners = new Set<(change: LibraryChange) => void>();
 let watcher: fs.FSWatcher | null = null;
@@ -45,7 +46,7 @@ function startPolling(vault: string, reason: unknown): void {
   watcher = null;
   const detail = reason instanceof Error ? reason.message : String(reason);
   console.warn(`Vault watcher unavailable for ${vault}; polling instead: ${detail}`);
-  addSessionNotice(`Watching the vault by polling every ${POLL_MS / 1000} s`);
+  addSessionNotice(POLLING_NOTICE);
   const service = new LibraryService(vault);
   let previous: Snapshot = snapshotTree(service.tree());
   poller = setInterval(() => {
@@ -64,9 +65,11 @@ export function watchVault(): void {
   watchedVault = vault;
   try {
     watcher = fs.watch(vault, { recursive: true }, (_event, filename) => {
+      if (filename && isHiddenPath(String(filename))) return;
       batcher.add(filename ? String(filename) : '');
     });
     watcher.on('error', (error) => startPolling(vault, error));
+    clearSessionNotice(POLLING_NOTICE);
   } catch (error) {
     startPolling(vault, error);
   }

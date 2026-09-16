@@ -1,5 +1,5 @@
 import type { LibraryDocument, LibraryTree } from '../shared/api';
-import { ChangeBatcher, diffSnapshots, snapshotTree } from '../services/libraryWatch';
+import { ChangeBatcher, diffSnapshots, isHiddenPath, snapshotTree } from '../services/libraryWatch';
 
 describe('ChangeBatcher', () => {
   beforeEach(() => jest.useFakeTimers());
@@ -70,5 +70,17 @@ describe('diffSnapshots', () => {
   it('reports the vault appearing', () => {
     const before = snapshotTree(tree({ exists: false }));
     expect(diffSnapshots(before, snapshotTree(tree({})))).toEqual(['']);
+  });
+});
+
+describe('isHiddenPath', () => {
+  it.each([
+    ['.obsidian/workspace.json', true],
+    ['Work/.trash/a.md', true],
+    ['Work/a.md', false],
+    ['', false],
+    ['a\\.git\\x', true],
+  ])('%j -> %p', (relative, expected) => {
+    expect(isHiddenPath(relative)).toBe(expected);
   });
 });

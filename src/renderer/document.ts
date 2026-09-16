@@ -22,6 +22,7 @@ let follow = true;
 let readError: string | null = null;
 let refinedSignature = '';
 let wasRunning = false;
+let wasSessionDocument = false;
 
 function isLiveDocument(): boolean {
   const file = getState().selectedFile;
@@ -121,6 +122,7 @@ function renderDocument(): void {
       body.replaceChildren(el('p', 'error-state', `Could not open this document: ${readError}`));
     } else {
       title.textContent = 'Loading…';
+      body.replaceChildren();
     }
     return;
   }
@@ -173,6 +175,7 @@ function onStateChange(state: AppState, changed: ReadonlySet<keyof AppState>): v
     readError = null;
     void loadDocument();
   }
+  let sessionRelevant = false;
   if (changed.has('session')) {
     const running = isSessionRunning(state.session.status);
     const signature = state.session.blocks
@@ -180,15 +183,21 @@ function onStateChange(state: AppState, changed: ReadonlySet<keyof AppState>): v
       .map((b) => b.blockIndex)
       .join(',');
     const stoppedNow = wasRunning && !running;
-    if (isSessionDocument() && (signature !== refinedSignature || stoppedNow)) void loadDocument();
+    const isDoc = isSessionDocument();
+    // Render on a session change only when the open document is, or just was, the session
+    // document: unrelated notes must not lose the reader's text selection.
+    sessionRelevant = isDoc || wasSessionDocument;
+    if (isDoc && (signature !== refinedSignature || stoppedNow)) void loadDocument();
     refinedSignature = signature;
     wasRunning = running;
+    wasSessionDocument = isDoc;
   }
   if (
     changed.has('document') ||
-    changed.has('session') ||
-    changed.has('tree') ||
     changed.has('selectedFile') ||
+    (changed.has('session') && sessionRelevant) ||
+    // The tree only affects the empty-state hint text, which only shows with nothing selected.
+    (changed.has('tree') && state.selectedFile === null) ||
     (changed.has('scrollToLine') && state.scrollToLine !== null) ||
     (changed.has('scrollToBlock') && state.scrollToBlock !== null)
   ) {

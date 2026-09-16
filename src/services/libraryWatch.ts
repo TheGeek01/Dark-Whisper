@@ -50,6 +50,11 @@ export function snapshotTree(tree: LibraryTree): Snapshot {
   return snapshot;
 }
 
+// True when any '/'- or '\'-separated segment starts with '.' (e.g. .obsidian, .trash, .git).
+export function isHiddenPath(relative: string): boolean {
+  return relative.split(/[\\/]/).some((segment) => segment.startsWith('.'));
+}
+
 export function diffSnapshots(before: Snapshot, after: Snapshot): string[] {
   const changed = new Set<string>();
   for (const [key, value] of after) {
