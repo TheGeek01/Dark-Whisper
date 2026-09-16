@@ -10,6 +10,7 @@ files:
   - "!dist/__tests__"
   - "!dist/**/*.test.*"
   - "!dist/**/*.map"
+  - "!dist/renderer"
   - assets/**/*
   - public/**/*
   - package.json

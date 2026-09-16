@@ -4,10 +4,12 @@
   "description": "Desktop application for recording audio and transcribing with OpenAI's Whisper API",
   "main": "dist/main.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run build:renderer",
+    "build:renderer": "tsc -p tsconfig.renderer.json && node scripts/copy-vendor.js",
     "watch": "tsc --watch",
+    "watch:renderer": "tsc -p tsconfig.renderer.json --watch",
     "start": "npm run build && install-electron && electron .",
-    "dev": "install-electron && concurrently \"npm run watch\" \"wait-on dist/main.js && electron .\"",
+    "dev": "install-electron && npm run build:renderer && concurrently \"npm run watch\" \"npm run watch:renderer\" \"wait-on dist/main.js && electron .\"",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "test": "jest",
@@ -18,7 +20,7 @@
     "clean-build": "node -e \"const fs = require('fs'); const path = require('path'); ['dist/Whisper Desktop.exe', 'dist/Whisper Desktop.exe.blockmap', 'dist/__msi-x64', 'dist/win-unpacked'].forEach(p => { try { const fullPath = path.join(__dirname, p); if (fs.existsSync(fullPath)) fs.rmSync(fullPath, {recursive: true}); } catch(e) {} });\"",
     "ensure-mac-perms": "node -e \"const fs = require('fs'); const path = require('path'); const dir = path.join(__dirname, 'node_modules/@nut-tree-fork/node-mac-permissions'); if (!fs.existsSync(dir)) { fs.mkdirSync(dir, {recursive: true}); fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({name: '@nut-tree-fork/node-mac-permissions', version: '1.0.0'})); }\"",
     "sync-version": "node -e \"const { execSync } = require('child_process'); const fs = require('fs'); try { const tag = execSync('git describe --tags --abbrev=0', { encoding: 'utf8' }).trim(); const version = tag.replace(/^v/, ''); const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8')); pkg.version = version; fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\\n'); console.log('Synced version to', version); } catch(e) { console.log('No tags found, keeping current version'); }\"",
-    "build:windows": "npm run sync-version && npm run ensure-mac-perms && tsc -p tsconfig.prod.json && npm run clean-build && electron-builder --win"
+    "build:windows": "npm run sync-version && npm run ensure-mac-perms && tsc -p tsconfig.prod.json && npm run build:renderer && npm run clean-build && electron-builder --win"
   },
   "repository": {
     "type": "git",
@@ -45,10 +47,12 @@
     "@typescript-eslint/eslint-plugin": "^8.70.0",
     "@typescript-eslint/parser": "^8.70.0",
     "concurrently": "^10.0.5",
+    "dompurify": "^3.4.15",
     "electron": "^44.4.0",
     "electron-builder": "^26.15.3",
     "eslint": "^10.10.0",
     "jest": "^30.5.1",
+    "marked": "^18.0.13",
     "ts-jest": "^29.4.12",
     "ts-node": "^10.9.2",
     "typescript": "~6.0.3",
