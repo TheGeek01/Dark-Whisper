@@ -5,10 +5,11 @@ import * as os from 'os';
 import * as path from 'path';
 import { AudioEntry, BYTES_PER_SECOND, WAV_HEADER_BYTES, slicesForRange, wavHeader } from './blockMath';
 import { RefineEvent, RefineQueue, shouldRefineDuringRecording } from './blockRefiner';
-import { BlockRef, DocumentStore, Frontmatter, ReplaceOutcome } from './documentStore';
+import { DocumentStore, Frontmatter } from './documentStore';
+import { GuardedStore } from './guardedStore';
 import { MicMuteService } from './micMuteService';
 import { buildShimArgs, parseMuteOutput } from './micMuteOutput';
-import { RefineJob, SessionService, SessionStoreLike } from './sessionService';
+import { RefineJob, SessionService } from './sessionService';
 import { newSessionId } from './sessionPaths';
 import { CaptureDevice } from './streamOutput';
 import { getSettings } from './settingsService';
@@ -29,71 +30,11 @@ const REFINE_STATE: Record<RefineEvent['kind'], BlockState> = {
   failed: 'failed',
 };
 
-const EXTERNAL_EDIT_MESSAGE = 'File edited outside the app — refinement paused for this session';
-
-// Wraps the document store so every write first checks that nobody else changed the file since
-// our previous write (spec §5.3). Once tripped, appending carries on but no block is replaced.
-class GuardedStore implements SessionStoreLike {
-  private lastHash = '';
-  edited = false;
-
-  constructor(
-    private readonly store: DocumentStore,
-    private readonly onEdited: () => void,
-  ) {}
-
-  private beforeWrite(file: string): void {
-    if (this.edited || this.lastHash === '') return;
-    if (this.store.fileHash(file) !== this.lastHash) {
-      this.edited = true;
-      this.onEdited();
-    }
-  }
-
-  private afterWrite(file: string): void {
-    this.lastHash = this.store.fileHash(file);
-  }
-
-  noteWrite(file: string): void {
-    this.afterWrite(file);
-  }
-
-  openBlock(file: string, block: BlockRef, heading?: string): void {
-    this.beforeWrite(file);
-    this.store.openBlock(file, block, heading);
-    this.afterWrite(file);
-  }
-
-  appendSegment(file: string, text: string): void {
-    this.beforeWrite(file);
-    this.store.appendSegment(file, text);
-    this.afterWrite(file);
-  }
-
-  appendLine(file: string, line: string): void {
-    this.beforeWrite(file);
-    this.store.appendLine(file, line);
-    this.afterWrite(file);
-  }
-
-  readBlockText(file: string, index: number): string | null {
-    return this.store.readBlockText(file, index);
-  }
-
-  replaceBlock(file: string, index: number, text: string, expectedHash: string): ReplaceOutcome {
-    this.beforeWrite(file);
-    if (this.edited) return 'skipped-edited';
-    const outcome = this.store.replaceBlock(file, index, text, expectedHash);
-    this.afterWrite(file);
-    return outcome;
-  }
-
-  updateFrontmatter(file: string, patch: { duration: number }): void {
-    this.beforeWrite(file);
-    this.store.updateFrontmatter(file, patch);
-    this.afterWrite(file);
-  }
-}
+const OUTSIDE_EDIT_MESSAGE =
+  'File changed outside the app — edited blocks won’t be refined. Reload it in your editor before saving, or it will overwrite new text.';
+const EDITED_BLOCK_MESSAGE = 'block edited outside the app';
+const AUDIO_REMOVE_ATTEMPTS = 5;
+const AUDIO_REMOVE_RETRY_MS = 1000;
 
 // Everything one session owns. A stopped session keeps refining in the background after a new
 // one starts, so its callbacks must never reach for "the current session".
@@ -108,6 +49,7 @@ interface SessionContext {
   stopped: boolean;
   audioRemoved: boolean;
   pausedByApp: boolean;
+  outsideEditNoticed: boolean;
   microphone: string;
   liveModel: string;
   refineModel: string;
@@ -328,7 +270,6 @@ function modelSize(id: string): number {
 
 // Whether this session may be refined at all, and whether it may be refined right now.
 function refinementAllowed(ctx: SessionContext): boolean {
-  if (ctx.store.edited) return false;
   const settings = getSettings();
   if (settings.serverMode === 'external') {
     if (!settings.refineWithExternalApi) return false;
@@ -346,20 +287,38 @@ async function settle(ctx: SessionContext): Promise<void> {
   if (!ctx.stopped || ctx.audioRemoved) return;
   await ctx.queue.drain();
   if (ctx.audioRemoved) return;
-  const abandoned = !refinementAllowed(ctx) && refinementBlockedForGood(ctx);
+  const abandoned = !refinementAllowed(ctx) && refinementBlockedForGood();
   if (ctx.queue.pending() > 0 && !abandoned) return;
   ctx.audioRemoved = true;
   finishing.delete(ctx);
   if (!getSettings().keepSessionAudio) {
-    fs.rmSync(path.join(sessionsRoot(), ctx.id), { recursive: true, force: true });
+    await removeSessionAudio(ctx.id);
   }
   emit();
 }
 
+// Windows refuses to delete a file another process still has open; the recorder may take a
+// moment to let go. A folder that still cannot be removed is reported at the next start.
+async function removeSessionAudio(id: string): Promise<void> {
+  const dir = path.join(sessionsRoot(), id);
+  for (let attempt = 1; attempt <= AUDIO_REMOVE_ATTEMPTS; attempt++) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (attempt === AUDIO_REMOVE_ATTEMPTS) {
+        console.error(`Could not remove session audio ${dir}:`, error);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, AUDIO_REMOVE_RETRY_MS));
+    }
+  }
+}
+
 // A server that is merely starting may still become ready; these conditions will not change.
-function refinementBlockedForGood(ctx: SessionContext): boolean {
+function refinementBlockedForGood(): boolean {
   const settings = getSettings();
-  return ctx.store.edited || (settings.serverMode === 'external' && !settings.refineWithExternalApi);
+  return settings.serverMode === 'external' && !settings.refineWithExternalApi;
 }
 
 function uniqueDocumentId(dir: string, base: string): string {
@@ -424,9 +383,16 @@ export async function startSession(folder = ''): Promise<SessionStatusView> {
   const documentPath = documents.createDocument(uniqueDocumentId(targetDir, base), frontmatter, target.folder);
 
   let ctx: SessionContext | null = null;
-  const store = new GuardedStore(documents, () => {
-    if (ctx) addMessage(ctx, EXTERNAL_EDIT_MESSAGE);
-    ctx?.queue.setAllowed(false);
+  // Finished blocks are protected by their own hash when refined; the block still being
+  // recorded has no hash yet, so it is marked and will not be queued.
+  const store = new GuardedStore(documents, (changed) => {
+    if (!ctx) return;
+    if (!ctx.outsideEditNoticed) {
+      ctx.outsideEditNoticed = true;
+      addMessage(ctx, OUTSIDE_EDIT_MESSAGE);
+    }
+    const live = ctx.stopped ? null : ctx.service.getInfo().blockIndex;
+    if (live !== null && changed.includes(live)) ctx.service.markEdited(live);
     emit();
   });
   store.noteWrite(documentPath);
@@ -469,6 +435,7 @@ export async function startSession(folder = ''): Promise<SessionStatusView> {
     stopped: false,
     audioRemoved: false,
     pausedByApp: false,
+    outsideEditNoticed: false,
     microphone: device?.name ?? 'System default',
     liveModel: settings.liveModelId,
     refineModel: settings.serverMode === 'external' ? 'External API' : settings.modelId ?? 'none',
@@ -482,7 +449,10 @@ export async function startSession(folder = ''): Promise<SessionStatusView> {
   }
 
   const owner = ctx;
-  service.onBlock((event) => recordBlock(owner, event.blockIndex, event.state, undefined, event));
+  service.onBlock((event) => {
+    if (event.state === 'edited') recordBlock(owner, event.blockIndex, 'skipped', EDITED_BLOCK_MESSAGE, event);
+    else recordBlock(owner, event.blockIndex, event.state, undefined, event);
+  });
   queue.setAllowed(refinementAllowed(ctx));
   service.begin({ id, documentPath });
   service.onInfo(() => emit());
@@ -510,7 +480,7 @@ export async function resumeSession(): Promise<void> {
 export async function stopSession(): Promise<void> {
   const ctx = current;
   if (!ctx || ctx.stopped) return;
-  stopLiveEngine();
+  const audioStopped = stopLiveEngine();
   micMute.stop();
   const unmute = ctx.pausedByApp;
   ctx.service.end();
@@ -519,7 +489,9 @@ export async function stopSession(): Promise<void> {
   if (unmute) {
     await micMute.setMuted(false).catch((error) => console.error('Could not unmute the microphone:', error));
   }
-  void settle(ctx);
+  void audioStopped
+    .then(() => settle(ctx))
+    .catch((error) => console.error('Failed to finish the session:', error));
 }
 
 export async function revealDocument(): Promise<void> {

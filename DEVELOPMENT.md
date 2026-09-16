@@ -43,6 +43,7 @@ Electron-free (unit-tested):
 | `documentStore.ts` | Vault Markdown: frontmatter, append, block replace with hash guard, list, search, rename |
 | `blockMath.ts` | Block time ranges, audio manifest → byte ranges, WAV headers |
 | `sessionService.ts` | One session: segments → document, block boundaries, refinement jobs, gap markers |
+| `guardedStore.ts` | Wraps `DocumentStore` for a session: before every read or write, detects outside edits and reports which blocks changed |
 | `blockRefiner.ts` | Refinement queue (one at a time, one retry) and the 2 GB memory guard |
 | `micMuteOutput.ts` | The inline PowerShell/C# Core Audio shim and its `muted:true|false` output |
 | `micMuteService.ts` | Polls the mute state and reports changes |
@@ -55,7 +56,7 @@ Electron-bound (verified by build, lint and running the app):
 |--------|----------------|
 | `whisperRuntime.ts` | Real dependencies: spawn, free port, `/health` polling, PID file, log file, stale-process cleanup; owns the `whisperServer` and `modelManager` singletons |
 | `streamRuntime.ts` | Spawns whisper-stream, session directories, the SoX session-audio recorder and its manifest |
-| `sessionRuntime.ts` | Wires engine, document, refinement queue and mic mute into sessions; external-edit guard |
+| `sessionRuntime.ts` | Wires engine, document, refinement queue and mic mute into sessions; reacts to outside edits |
 | `appIdentity.ts` | App name and the user-data migration, at import time |
 | `settingsService.ts` | electron-store persistence |
 | `apiService.ts` | Transcription HTTP client (timeout differs per mode) |
@@ -141,7 +142,8 @@ session-stop → engine and SoX stopped, final block queued, duration written;
 ### Documents and refinement
 
 - Blocks are delimited by `<!-- dw:block <n> t=<startSec>-<endSec> -->`. A block is replaced only when its text still hashes (SHA256 of the trimmed text) to what we recorded when it closed.
-- `sessionRuntime` wraps the store so that **every** write first compares the file's hash with our previous write. A mismatch means another program edited the file: appending continues, refinement stops for that session.
+- `GuardedStore` compares the file with the exact text we last wrote before **every** read or write. A difference means another program edited the file: the outside text becomes the new baseline, and `changedBlocks` reports which blocks changed. Finished blocks are then protected by their own hash when refined (`skipped-edited`); the block still being recorded is marked with `SessionService.markEdited` and is closed as `edited` (shown as skipped) instead of being queued. Every other block is still refined. A file that cannot be read at that moment (a sync client holding it) is not treated as an edit.
+- Stopping a session waits for SoX to exit before deleting the session audio (Windows refuses to delete a file that is still open), and retries the delete a few times.
 - Each session owns its document, store and queue, so a stopped session that is still refining can never write into the next one.
 - Refinement runs only when allowed: built-in server `ready` (or external mode with `refineWithExternalApi`), and during recording only if `refineDuringRecording` permits (`auto` defers when the live and refine model files exceed 2 GB). Permission is re-checked whenever the server status changes.
 - Refinement jobs slice `44 + floor(offset × 32000)` … bytes per overlapping WAV, skipping gaps; less than one second of audio is skipped.
@@ -205,7 +207,7 @@ npx jest src/__tests__/whisperServer.test.ts    # one suite
 npm run test:coverage
 ```
 
-309 tests across 26 suites. Conventions:
+328 tests across 27 suites. Conventions:
 
 - Use real filesystem work in a temp directory (`fs.mkdtempSync(os.tmpdir())`) rather than mocking `fs`.
 - Inject fakes for processes, HTTP and clocks; never spawn a real process or hit the network, so the suite also passes on the Ubuntu CI runners.

@@ -74,6 +74,51 @@ export function slugify(title: string): string {
 
 const BLOCK_LINE = /^<!-- dw:block (\d+) t=(\d+)-(\d+) -->$/;
 
+function blockLineRange(lines: string[], index: number): { start: number; end: number } | null {
+  const start = lines.findIndex((line) => {
+    const match = BLOCK_LINE.exec(line.trim());
+    return match !== null && Number(match[1]) === index;
+  });
+  if (start === -1) return null;
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (BLOCK_LINE.test(lines[i].trim())) {
+      end = i;
+      break;
+    }
+  }
+  return { start, end };
+}
+
+// The text of one block as refinement sees it: no marker, headings or gap markers.
+export function blockTextFrom(content: string, index: number): string | null {
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  const range = blockLineRange(lines, index);
+  if (!range) return null;
+  return lines
+    .slice(range.start + 1, range.end)
+    .filter((line) => !line.trim().startsWith('#') && line.trim() !== '<!-- dw:gap -->')
+    .join('\n')
+    .trim();
+}
+
+function blockIndexes(content: string): number[] {
+  const indexes: number[] = [];
+  for (const line of content.replace(/\r\n/g, '\n').split('\n')) {
+    const match = BLOCK_LINE.exec(line.trim());
+    if (match) indexes.push(Number(match[1]));
+  }
+  return indexes;
+}
+
+// Blocks whose text differs between two versions of a document, in ascending order.
+export function changedBlocks(before: string, after: string): number[] {
+  const all = new Set([...blockIndexes(before), ...blockIndexes(after)]);
+  return [...all]
+    .filter((index) => blockTextFrom(before, index) !== blockTextFrom(after, index))
+    .sort((a, b) => a - b);
+}
+
 export class DocumentStore {
   constructor(private readonly vaultPath: string) {}
 
@@ -129,29 +174,12 @@ export class DocumentStore {
 
   private blockBounds(file: string, index: number): { startLine: number; endLine: number; lines: string[] } | null {
     const lines = this.read(file).split('\n');
-    const startLine = lines.findIndex((line) => {
-      const match = BLOCK_LINE.exec(line.trim());
-      return match !== null && Number(match[1]) === index;
-    });
-    if (startLine === -1) return null;
-    let endLine = lines.length;
-    for (let i = startLine + 1; i < lines.length; i++) {
-      if (BLOCK_LINE.test(lines[i].trim())) {
-        endLine = i;
-        break;
-      }
-    }
-    return { startLine, endLine, lines };
+    const range = blockLineRange(lines, index);
+    return range ? { startLine: range.start, endLine: range.end, lines } : null;
   }
 
   readBlockText(file: string, index: number): string | null {
-    const bounds = this.blockBounds(file, index);
-    if (!bounds) return null;
-    return bounds.lines
-      .slice(bounds.startLine + 1, bounds.endLine)
-      .filter((line) => !line.trim().startsWith('#') && line.trim() !== '<!-- dw:gap -->')
-      .join('\n')
-      .trim();
+    return blockTextFrom(this.read(file), index);
   }
 
   replaceBlock(file: string, index: number, text: string, expectedHash: string): ReplaceOutcome {
@@ -241,6 +269,15 @@ export class DocumentStore {
 
   deleteDocument(file: string): void {
     fs.rmSync(file, { force: true });
+  }
+
+  // The whole file, or null if it cannot be read right now (e.g. a sync client holds it).
+  readContent(file: string): string | null {
+    try {
+      return this.read(file);
+    } catch {
+      return null;
+    }
   }
 
   // Lets callers notice an edit made outside the app between two of our own writes.

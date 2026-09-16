@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { DocumentStore, Frontmatter, blockMarker, hashText, parseFrontmatter, slugify } from '../services/documentStore';
+import { DocumentStore, Frontmatter, blockMarker, blockTextFrom, changedBlocks, hashText, parseFrontmatter, slugify } from '../services/documentStore';
 
 const FM: Frontmatter = {
   title: 'untitled',
@@ -241,5 +241,45 @@ describe('DocumentStore.createDocument folders', () => {
     const file = new DocumentStore(vault).createDocument('2026-09-16-0706', FM, 'Clients/Acme');
     expect(file).toBe(path.join(vault, 'Clients', 'Acme', '2026-09-16-0706-untitled.md'));
     expect(fs.readFileSync(file, 'utf8')).toContain('title: untitled');
+  });
+});
+
+describe('block text helpers', () => {
+  const DOC = [
+    '---',
+    'title: t',
+    '---',
+    '',
+    '<!-- dw:block 1 t=0-120 -->',
+    '## 00:00:00',
+    'first block',
+    '',
+    '<!-- dw:block 2 t=120-240 -->',
+    'second block',
+    '',
+  ].join('\n');
+
+  it('extracts one block without its heading', () => {
+    expect(blockTextFrom(DOC, 1)).toBe('first block');
+    expect(blockTextFrom(DOC, 2)).toBe('second block');
+    expect(blockTextFrom(DOC, 3)).toBeNull();
+  });
+
+  it('matches what DocumentStore.readBlockText returns', () => {
+    const vault = fs.mkdtempSync(path.join(os.tmpdir(), 'dw-block-text-'));
+    const file = path.join(vault, 'doc.md');
+    fs.writeFileSync(file, DOC);
+    const store = new DocumentStore(vault);
+    expect(store.readBlockText(file, 1)).toBe(blockTextFrom(DOC, 1));
+    expect(store.readBlockText(file, 2)).toBe(blockTextFrom(DOC, 2));
+  });
+
+  it('lists the blocks whose text changed, including removed and added blocks', () => {
+    const edited = DOC.replace('second block', 'second block, edited').replace('first block', 'first block');
+    expect(changedBlocks(DOC, edited)).toEqual([2]);
+    expect(changedBlocks(DOC, DOC + 'more text for block two\n')).toEqual([2]);
+    expect(changedBlocks(DOC, DOC.replace('<!-- dw:block 2 t=120-240 -->\n', ''))).toEqual([1, 2]);
+    expect(changedBlocks(DOC, DOC.replace('title: t', 'title: renamed'))).toEqual([]);
+    expect(changedBlocks(DOC, `${DOC}\n<!-- dw:block 3 t=240-360 -->\nthird\n`)).toEqual([3]);
   });
 });

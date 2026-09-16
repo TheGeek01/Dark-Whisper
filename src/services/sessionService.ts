@@ -10,7 +10,7 @@ export interface RefineJob {
   hash: string;
 }
 
-export type SessionBlockState = 'live' | 'empty' | 'queued';
+export type SessionBlockState = 'live' | 'empty' | 'queued' | 'edited';
 
 export interface SessionBlockEvent {
   blockIndex: number;
@@ -48,6 +48,8 @@ export class SessionService {
   private readonly listeners = new Set<(info: SessionInfo) => void>();
   private readonly blockListeners = new Set<(event: SessionBlockEvent) => void>();
   private readonly hashes = new Map<number, string>();
+  // Blocks someone changed outside the app before they closed: their text is not ours to replace.
+  private readonly editedBlocks = new Set<number>();
   private launches = 0;
 
   constructor(private readonly deps: SessionDeps) {}
@@ -87,6 +89,7 @@ export class SessionService {
 
   begin(args: { id: string; documentPath: string }): void {
     this.hashes.clear();
+    this.editedBlocks.clear();
     this.launches = 0;
     this.info = { id: args.id, documentPath: args.documentPath, state: 'recording', blockIndex: 1, durationSec: 0 };
     this.openBlock(1);
@@ -100,11 +103,21 @@ export class SessionService {
     this.emitBlock({ blockIndex: index, startSec: range.startSec, endSec: range.endSec, state: 'live' });
   }
 
-  // A block with no speech in it has nothing to refine, so it is closed without a job.
+  markEdited(blockIndex: number): void {
+    this.editedBlocks.add(blockIndex);
+  }
+
+  // A block with no speech in it has nothing to refine, so it is closed without a job, and so
+  // is a block edited outside the app. Reading the text may itself detect such an edit, so the
+  // edited check comes after the read.
   // 'queued' is reported before the job is enqueued: the queue may start it synchronously.
   private closeBlock(index: number, endSec: number): void {
     const range = blockRange(index, this.deps.blockMinutes);
     const text = this.deps.store.readBlockText(this.info.documentPath, index) ?? '';
+    if (this.editedBlocks.has(index)) {
+      this.emitBlock({ blockIndex: index, startSec: range.startSec, endSec, state: 'edited' });
+      return;
+    }
     if (text.trim().length === 0) {
       this.emitBlock({ blockIndex: index, startSec: range.startSec, endSec, state: 'empty' });
       return;

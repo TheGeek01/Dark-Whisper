@@ -23,7 +23,7 @@ Repository: https://github.com/TheGeek01/Dark-Whisper (fork of dniasoff/whisper-
 - **Keystrokes**: @nut-tree-fork/libnut 4.2.6 (`keyTap('v', 'control')`)
 - **HTTP**: axios 1.20.0 | **Settings**: electron-store 11.0.2 | **Multipart**: form-data 4.0.6
 - **Build**: electron-builder 26.15.3 (config only in `electron-builder.yml`)
-- **Tests**: Jest 30.5.1 + ts-jest — 309 tests, 26 suites | **Lint**: ESLint 10
+- **Tests**: Jest 30.5.1 + ts-jest — 328 tests, 27 suites | **Lint**: ESLint 10
 
 ## Architecture
 Logic lives in Electron-free modules; one wiring module touches Electron. Jest cannot load Electron, so tests must never import `electron`, `electron-store`, `settingsService`, `whisperRuntime`, `streamRuntime`, `sessionRuntime`, `libraryRuntime`, `appIdentity` or `main`.
@@ -33,8 +33,8 @@ Logic lives in Electron-free modules; one wiring module touches Electron. Jest c
 - **preload.ts** — `contextBridge` API; type-only imports so the bundle requires only `electron`
 - **public/index.html** — workspace markup only (header, library, document, session panel), CSP-locked, loads `js/renderer/app.js`; `public/app.css` is the dark theme
 
-Electron-free services (unit-tested): `modelCatalog`, `modelManager`, `whisperServer`, `serverOutput`, `serverPaths`, `serverGate`, `settingsMigration`, `userDataMigration`, `streamOutput`, `streamEngine`, `sessionPaths`, `documentStore`, `blockMath`, `sessionService`, `blockRefiner`, `micMuteOutput`, `micMuteService`, `libraryService` (vault tree, search, moves, path guard), `libraryWatch` (change batching, polling diff).
-Electron-bound services: `whisperRuntime` (spawn, ports, `/health`, PID file, log file, stale cleanup), `streamRuntime` (whisper-stream spawn, session dirs, SoX session audio + manifest), `sessionRuntime` (sessions, external-edit guard, refinement permission, mic mute), `settingsService`, `apiService`, `recordingService`, `audioControlService`, `pasteService`, `hotkeyService`, `libraryRuntime` (library IPC, `fs.watch` + 5 s polling fallback, Recycle Bin, open/reveal, vault picker).
+Electron-free services (unit-tested): `modelCatalog`, `modelManager`, `whisperServer`, `serverOutput`, `serverPaths`, `serverGate`, `settingsMigration`, `userDataMigration`, `streamOutput`, `streamEngine`, `sessionPaths`, `documentStore`, `guardedStore` (outside-edit detection), `blockMath`, `sessionService`, `blockRefiner`, `micMuteOutput`, `micMuteService`, `libraryService` (vault tree, search, moves, path guard), `libraryWatch` (change batching, polling diff).
+Electron-bound services: `whisperRuntime` (spawn, ports, `/health`, PID file, log file, stale cleanup), `streamRuntime` (whisper-stream spawn, session dirs, SoX session audio + manifest), `sessionRuntime` (sessions, outside-edit handling, refinement permission, mic mute), `settingsService`, `apiService`, `recordingService`, `audioControlService`, `pasteService`, `hotkeyService`, `libraryRuntime` (library IPC, `fs.watch` + 5 s polling fallback, Recycle Bin, open/reveal, vault picker).
 
 ## Workspace (stage 2)
 - Renderer (`src/renderer/` → `public/js/`): vanilla TypeScript compiled by `tsconfig.renderer.json` (`npm run build:renderer`); `marked`/`DOMPurify` are copied to `public/vendor/` and used as classic-script globals (`src/renderer/globals.d.ts`). One state object (`state.ts`, `update(patch)`/`subscribe(listener)`) drives every pane's re-render.
@@ -67,7 +67,7 @@ States: `no-model` | `starting` | `ready` | `error` | `stopped`.
 - Engine: `whisper-stream.exe -m <live model> --step 0 --length 10000 -vth 0.6 -t <n> -l <lang> [-c <id>] [-ng] -f live.txt`, cwd `userData/sessions/<id>/`. Ready = stdout `[Start speaking]` (60 s). Diagnostics and the device list are on stderr; `streamOutput.ts` is the only parser of this format.
 - Session audio is recorded by SoX (`session-<n>.wav`, 16 kHz 16-bit mono, 32 000 B/s, 44-byte header), never by `--save-audio` (not real-time in VAD mode). SoX keeps running across engine restarts.
 - Blocks: `<!-- dw:block <n> t=<start>-<end> -->`, `blockMinutes` on the audio clock; closed non-empty block → RefineJob with SHA256 of its text; replaced only if the text still matches.
-- Every write checks the file hash against our last write; an outside edit stops refinement for that session. Each session owns its store and queue.
+- Every read and write compares the file with what we last wrote (`GuardedStore`). An outside edit is accepted as the new baseline: edited finished blocks are skipped by their hash guard, the edited live block is marked and not queued, and all other blocks still refine. Each session owns its store and queue. Stop waits for SoX to exit before deleting session audio (Windows `EPERM` otherwise).
 - Refinement allowed: built-in server ready (or external + `refineWithExternalApi`); during recording `auto` defers when live + refine model files > 2 GB. Audio deleted once the queue is empty unless `keepSessionAudio`.
 - Mic mute shim: inline C# via powershell; needs `[ComImport]`, and 11 methods precede `SetMute` in `IAudioEndpointVolume`. Acts on the default capture device.
 - Document name `<vault>/YYYY-MM-DD-HHmm-untitled.md`, `-2` on collision.

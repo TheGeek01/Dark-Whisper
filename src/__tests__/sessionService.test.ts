@@ -196,4 +196,34 @@ describe('SessionService', () => {
     expect(ctx.service.applyRefinement(1, 'Better')).toBe('replaced');
     expect(replace).toHaveBeenCalledWith('C:/vault/Work/s1.md', 1, 'Better', expect.any(String));
   });
+  it('does not queue a block that was edited outside the app, and says so', () => {
+    const ctx = setup();
+    const events: SessionBlockEvent[] = [];
+    ctx.service.onBlock((event) => events.push(event));
+    ctx.service.segment({ text: 'live words', atMs: 10_000 });
+    ctx.service.markEdited(1);
+    ctx.service.segment({ text: 'next block', atMs: 130_000 });
+
+    expect(ctx.jobs).toEqual([]);
+    expect(events).toContainEqual({ blockIndex: 1, startSec: 0, endSec: 120, state: 'edited' });
+    expect(ctx.service.applyRefinement(1, 'Refined')).toBe('missing');
+  });
+
+  it('still queues the blocks that were not edited', () => {
+    const ctx = setup();
+    ctx.service.segment({ text: 'one', atMs: 10_000 });
+    ctx.service.markEdited(1);
+    ctx.service.segment({ text: 'two', atMs: 130_000 });
+    ctx.service.end();
+    expect(ctx.jobs.map((job) => job.blockIndex)).toEqual([2]);
+  });
+
+  it('forgets edited blocks when a new session begins', () => {
+    const ctx = setup();
+    ctx.service.markEdited(1);
+    ctx.service.begin({ id: 's2', documentPath: 'C:/vault/s2.md' });
+    ctx.service.segment({ text: 'fresh', atMs: 10_000 });
+    ctx.service.end();
+    expect(ctx.jobs.map((job) => job.blockIndex)).toEqual([1]);
+  });
 });

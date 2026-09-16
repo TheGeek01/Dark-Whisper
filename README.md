@@ -178,7 +178,8 @@ The window has three panes under a header:
 
 The live text comes from a small, fast model (`liveModelId`, `base.en` by default), which must be installed in the Models screen. Every two minutes of audio forms a **block**. When a block closes, its audio is sent to the built-in server, which re-transcribes it with your main model and replaces the block in the file. The session panel's "Waiting to refine" count shows the queue, and each block gets a status badge (waiting / refining… / refined) as it moves through it.
 
-- **Your edits win.** A block you changed is never overwritten. If the file is changed by another program (an editor, Obsidian, a sync tool) while a session is recording, appending carries on but refinement stops for that session.
+- **Your edits win.** A block you changed is never overwritten. If another program (an editor, Obsidian) changes the file while a session is recording, appending carries on, the blocks you edited are marked **skipped** in the Session panel, and every other block is still refined.
+- **Reload before you save.** An editor keeps its own copy of the file. The app keeps appending while you record, so accept your editor's "file changed, reload?" prompt before typing; saving an old copy overwrites the text written since.
 - **Memory.** With **Refine during recording** on *Auto*, refinement waits until you stop when the live and main models together exceed 2 GB. *Always* refines during the session; *After stopping* always waits.
 - **External API.** In External API mode, refinement is off unless you tick **Refine session blocks through this API**, because it would send your session audio to that server.
 - **Audio.** Session audio is recorded to `%APPDATA%\Dark-Whisper\sessions\<id>\` (about 115 MB per hour) and deleted once every block is refined, unless **Keep session audio** is on. Audio left behind by a crash is reported in the log at the next start and left on disk.
@@ -444,7 +445,7 @@ curl -X POST http://127.0.0.1:4444/v1/audio/transcriptions \
 - **"Live model … is not installed"** - download `base.en` (or whichever `liveModelId` you set) in the Models screen
 - **No text appears** - check the session microphone in Settings; a microphone that is no longer present falls back to the default and says so in the session line. `%APPDATA%\Dark-Whisper\logs\stream.log` has the engine's output
 - **"recording interrupted and resumed" in the file** - the live engine crashed and was restarted; the audio recording continued
-- **"File edited outside the app — refinement paused"** - another program changed the document during the session; stop the session, and the blocks keep their live text
+- **"File changed outside the app — edited blocks won't be refined"** - another program changed the document during the session. Blocks you edited keep your text and are marked skipped; the rest are still refined. Reload the file in your editor before saving
 - **Blocks are never refined** - the built-in server must be `Ready`; in External API mode refinement is off unless enabled in Settings
 
 ### Text Not Pasting
@@ -520,6 +521,7 @@ Dark-Whisper/
 │   │   ├── streamRuntime.ts       # Live engine and SoX session-audio wiring
 │   │   ├── sessionPaths.ts        # Session ids and audio file names
 │   │   ├── documentStore.ts       # Vault Markdown files: append, blocks, hash guard, search
+│   │   ├── guardedStore.ts        # Detects outside edits between the app's own writes
 │   │   ├── blockMath.ts           # Block time ranges → WAV byte ranges
 │   │   ├── sessionService.ts      # One session: segments → document, blocks, jobs
 │   │   ├── blockRefiner.ts        # Refinement queue and memory guard
@@ -529,7 +531,7 @@ Dark-Whisper/
 │   │   ├── libraryService.ts      # Vault tree, search, moves, path guard
 │   │   ├── libraryWatch.ts        # Change batching, polling diff
 │   │   └── libraryRuntime.ts      # Library IPC and vault watcher
-│   └── __tests__/                 # Unit tests (309 tests, 26 suites)
+│   └── __tests__/                 # Unit tests (328 tests, 27 suites)
 ├── public/
 │   └── index.html, app.css        # Workspace markup and dark theme
 ├── assets/

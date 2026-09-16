@@ -133,7 +133,7 @@ Second block text.
 
 - **Append:** each finalized segment is appended to the current block immediately (single writer: the main process).
 - **Replace:** refinement rewrites exactly one block's body. When a block is written, its SHA256 is recorded in the session manifest. Refinement applies **only if** the block's current on-disk text still hashes to that value; otherwise the block is left alone and marked `edited` (your edits always win).
-- **External change:** before each write the file's hash is compared with what we last wrote. On mismatch, refinement stops for the rest of the session, appending continues at the end of the file, and the UI shows "file edited outside the app — refinement paused".
+- **External change:** before each read or write the file is compared with what we last wrote. On a difference, the outside text becomes the new baseline, appending continues at the end of the file, and only the blocks whose text changed are left unrefined: finished blocks through their hash, the block still being recorded by marking it edited. The UI shows "file changed outside the app — edited blocks won't be refined". (Revised 2026-09-16: the first version stopped all refinement for the session.)
 - **Crash recovery:** `live.txt` plus the `.md` allow a session to be reconstructed; on startup a session directory with no matching document is reported once and left on disk.
 
 ### 5.4 Audio retention

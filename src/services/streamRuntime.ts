@@ -10,6 +10,8 @@ import { getSettings } from './settingsService';
 import { StreamEngine, StreamProcess } from './streamEngine';
 
 const MAX_SOX_RESTARTS = 3;
+// How long to wait for SoX to release the session audio after we ask it to stop.
+const SOX_EXIT_WAIT_MS = 5000;
 
 const userData = app.getPath('userData');
 const logFile = path.join(userData, 'logs', 'stream.log');
@@ -113,18 +115,28 @@ export function startSessionAudio(sessionDir: string, deviceName: string): void 
   spawnSoxSegment();
 }
 
-export function stopSessionAudio(): void {
+// Resolves once SoX has exited (or after SOX_EXIT_WAIT_MS): until then Windows will not let the
+// session audio be deleted.
+export function stopSessionAudio(): Promise<void> {
   sessionAudioActive = false;
   soxGeneration++;
-  if (soxChild) {
-    try {
-      soxChild.stdin?.write('q');
-    } catch {
-      // sox may already be gone; nothing to do.
-    }
-    soxChild.kill();
-    soxChild = null;
+  const child = soxChild;
+  soxChild = null;
+  if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  const exited = new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, SOX_EXIT_WAIT_MS);
+    child.once('exit', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+  try {
+    child.stdin?.write('q');
+  } catch {
+    // sox may already be gone; nothing to do.
   }
+  child.kill();
+  return exited;
 }
 
 export function resolveLiveModelPath(): string | null {
@@ -200,7 +212,8 @@ export async function startLiveEngine(args: { sessionId: string; captureId: numb
   });
 }
 
-export function stopLiveEngine(): void {
-  stopSessionAudio();
+export function stopLiveEngine(): Promise<void> {
+  const audioStopped = stopSessionAudio();
   streamEngine.stop();
+  return audioStopped;
 }
