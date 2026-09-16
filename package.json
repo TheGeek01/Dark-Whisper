@@ -1,5 +1,5 @@
 {
-  "name": "whisper-desktop",
+  "name": "dark-whisper",
   "version": "1.0.1",
   "description": "Desktop application for recording audio and transcribing with OpenAI's Whisper API",
   "main": "dist/main.js",
@@ -29,7 +29,7 @@
     "audio",
     "voice-to-text"
   ],
-  "author": "Whisper Desktop Contributors",
+  "author": "Dark-Whisper Contributors",
   "license": "MIT",
   "type": "commonjs",
   "bugs": {

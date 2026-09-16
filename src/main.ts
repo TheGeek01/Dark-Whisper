@@ -1,3 +1,4 @@
+import './appIdentity';
 import { app, BrowserWindow, Menu, Tray, ipcMain, Notification } from 'electron';
 import path from 'path';
 import * as fs from 'fs';
@@ -105,14 +106,14 @@ const handleServerStatus = () => {
   applyApiConfig();
   const view = currentStatusView();
   mainWindow?.webContents.send('server-status', view);
-  tray?.setToolTip(`Whisper Desktop — ${view.text}`);
+  tray?.setToolTip(`Dark-Whisper — ${view.text}`);
 };
 
 const canStartRecording = (): boolean => {
   const gate = recordingGate(getSettings().serverMode, whisperServer.getStatus());
   if (gate.allow) return true;
   if (gate.action === 'open-models') showModelsWindow();
-  showSystemNotification('Whisper Desktop', gate.message, 4000);
+  showSystemNotification('Dark-Whisper', gate.message, 4000);
   return false;
 };
 
@@ -182,7 +183,7 @@ const createTray = () => {
   ]);
 
   tray.setContextMenu(contextMenu);
-  tray.setToolTip('Whisper Desktop');
+  tray.setToolTip('Dark-Whisper');
 };
 
 app.on('ready', () => {
@@ -212,7 +213,7 @@ app.on('ready', () => {
     await modelManager.init();
     await startBuiltinServer();
     if (getSettings().serverMode === 'builtin' && whisperServer.getStatus().state === 'no-model') {
-      const notification = showSystemNotification('Whisper Desktop', 'Choose a speech model to finish setup', 8000);
+      const notification = showSystemNotification('Dark-Whisper', 'Choose a speech model to finish setup', 8000);
       notification.on('click', showModelsWindow);
     }
   })().catch((error) => console.error('Failed to start transcription server:', error));
@@ -267,7 +268,7 @@ const startRecordingSession = async () => {
     }
 
     mainWindow?.webContents.send('recording-started');
-    showSystemNotification('Whisper Desktop', 'Recording...', 2000);
+    showSystemNotification('Dark-Whisper', 'Recording...', 2000);
 
     const audioPath = await recordAudio(settings.micDevice || 'default');
     mainWindow?.webContents.send('recording-stopped');
@@ -279,7 +280,7 @@ const startRecordingSession = async () => {
       return;
     }
 
-    transcriptionNotification = showSystemNotification('Whisper Desktop', 'Transcribing...');
+    transcriptionNotification = showSystemNotification('Dark-Whisper', 'Transcribing...');
 
     const transcription = await transcribeAudio(audioPath);
     lastTranscription = transcription;
