@@ -21,7 +21,7 @@ The code is split so that all decision logic lives in modules that never import 
 - DOM: `header.ts`, `library.ts`, `document.ts`, `sessionPanel.ts`, `dialogs.ts` (ask/confirm, Settings, Models), `toast.ts`, `dom.ts`
 - Imports use `.js` extensions and `import type`; renderer code may import only `src/renderer` and `src/shared`
 - The only `innerHTML` is in `document.ts`, fed by `DOMPurify.sanitize`; everything else uses `textContent`
-- CSP `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'` — no inline scripts or `style` attributes in the markup
+- CSP `default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; font-src 'none'; media-src 'none'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'` — no inline scripts or `style` attributes in the markup; images (including note images) may only be `data:` URIs, so remote and UNC (`//host/share`) image references are blocked
 
 ### Services Layer
 
@@ -64,6 +64,8 @@ Electron-bound (verified by build, lint and running the app):
 | `pasteService.ts` | Clipboard write, verify, Ctrl+V via libnut, clipboard restore |
 | `hotkeyService.ts` | `globalShortcut` registration |
 | `libraryRuntime.ts` | Library IPC, `fs.watch` with a 5 s polling fallback, Recycle Bin, open/reveal, vault picker |
+
+At startup, `main.ts` creates the default vault (`Documents\Dark-Whisper`, `settingsService.DEFAULT_VAULT_PATH`) with `fs.mkdirSync(..., { recursive: true })` if it's missing, before calling `watchVault()` — a fresh install always has a vault to write to. A missing **custom** vault (one the user chose) is never auto-created; the library shows "Vault not found" with a Choose folder button instead.
 
 ### Security (preload.ts)
 - Context isolation between main and renderer; no `nodeIntegration`
@@ -326,6 +328,5 @@ For production releases, sign the executable to avoid SmartScreen warnings.
 
 1. **Voice activity detection** - auto-stop on silence instead of a second hotkey press
 2. **Transcription history** - store and display past transcriptions
-3. **Dark mode** - theme support
-4. **Auto-update** - electron-updater integration
-5. **macOS and Linux** - packaging and a non-Windows recording path
+3. **Auto-update** - electron-updater integration
+4. **macOS and Linux** - packaging and a non-Windows recording path

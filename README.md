@@ -176,7 +176,7 @@ The window has three panes under a header:
 3. Press the hotkey (or **Pause**) to pause, and again to resume. Muting your microphone pauses the session as well; unmuting resumes it
 4. Click **Stop** when you are done. The document cannot be renamed, moved or deleted while it is recording
 
-The live text comes from a small, fast model (`liveModelId`, `base.en` by default), which must be installed in the Models screen. Every two minutes of audio forms a **block**. When a block closes, its audio is sent to the built-in server, which re-transcribes it with your main model and replaces the block in the file. "refining N block(s)…" shows the queue.
+The live text comes from a small, fast model (`liveModelId`, `base.en` by default), which must be installed in the Models screen. Every two minutes of audio forms a **block**. When a block closes, its audio is sent to the built-in server, which re-transcribes it with your main model and replaces the block in the file. The session panel's "Waiting to refine" count shows the queue, and each block gets a status badge (waiting / refining… / refined) as it moves through it.
 
 - **Your edits win.** A block you changed is never overwritten. If the file is changed by another program (an editor, Obsidian, a sync tool) while a session is recording, appending carries on but refinement stops for that session.
 - **Memory.** With **Refine during recording** on *Auto*, refinement waits until you stop when the live and main models together exceed 2 GB. *Always* refines during the session; *After stopping* always waits.
@@ -227,7 +227,7 @@ Downloads are verified against Hugging Face's SHA256 and checked for the GGML fo
    - **Microphone Device** - Choose which input device records
    - **Auto-mute system audio** - Silence other audio while recording
    - **Session microphone** - The microphone sessions use (the list fills in once a session has started)
-   - **Vault folder** - Where session documents are written; pick it with **Choose folder…** (default `Documents\Dark-Whisper`)
+   - **Vault folder** - Where session documents are written; pick it with **Choose folder…** (default `Documents\Dark-Whisper`, created automatically on first start if it doesn't exist yet). A custom folder you choose is never created for you — if it goes missing, the library shows "Vault not found" until you choose or recreate it.
    - **Live model** - The fast model for live text (default `ggml-base.en.bin`)
    - **Language** - Transcription language for sessions (default `en`)
    - **Minutes per block** - How often a block closes and is refined (default 2)
@@ -586,7 +586,7 @@ The application implements several security measures:
 - **Model Download Verification** - Curated models are pinned to SHA256 hashes; custom links must be `https://huggingface.co/...` and every download is checked for the GGML format before use
 - **Model Path Validation** - Model identifiers are re-validated in the main process, so the renderer cannot reach outside the models directory
 - **Localhost-only Server** - The built-in server binds `127.0.0.1` and is never started with ffmpeg conversion enabled
-- **Sanitised documents** - Markdown is rendered with marked and cleaned with DOMPurify; a Content-Security-Policy blocks scripts and remote images, and links open in your browser, never in the app window
+- **Sanitised documents** - Markdown is rendered with marked and cleaned with DOMPurify; a locked-down Content-Security-Policy (`default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; font-src 'none'; media-src 'none'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'`) blocks scripts and any remote or UNC (`//host/share`) image reference in a note, and links open in your browser, never in the app window
 
 Note: the built-in server has no authentication, so other programs running as you on the same machine could use it while the app is open. That is the normal trade-off for a single-user desktop app.
 
@@ -633,7 +633,6 @@ To view debug output and logs:
 Potential features for future releases:
 
 - [ ] Multi-language support in UI (quick dictation's language is currently fixed to English)
-- [ ] Dark mode theme
 - [ ] Recording history and replay
 - [ ] Custom hotkey profiles
 - [ ] Batch transcription
