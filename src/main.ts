@@ -1,5 +1,5 @@
 import './appIdentity';
-import { app, BrowserWindow, Menu, Tray, ipcMain, Notification } from 'electron';
+import { app, BrowserWindow, clipboard, Menu, Tray, ipcMain, Notification, shell } from 'electron';
 import path from 'path';
 import * as fs from 'fs';
 import registerShortcuts from './services/hotkeyService';
@@ -26,6 +26,7 @@ import {
   startSession,
   stopSession,
 } from './services/sessionRuntime';
+import { onLibraryChanged, registerLibraryIpc, stopWatching, watchVault } from './services/libraryRuntime';
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -49,10 +50,19 @@ if (!gotTheLock) {
   });
 }
 
+const openExternalLink = (url: string) => {
+  if (/^https?:\/\//i.test(url)) {
+    void shell.openExternal(url);
+  }
+};
+
 const createWindow = () => {
   mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
+    width: 1200,
+    height: 760,
+    minWidth: 900,
+    minHeight: 560,
+    backgroundColor: '#15151b',
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -61,8 +71,18 @@ const createWindow = () => {
     },
   });
 
-  // Load the app (we'll create an index.html)
   mainWindow.loadFile(path.join(__dirname, '../public/index.html'));
+
+  // Documents can contain links: never navigate the app window; open web links in the browser.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalLink(url);
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url === mainWindow?.webContents.getURL()) return;
+    event.preventDefault();
+    openExternalLink(url);
+  });
 
   // Hide instead of close on window close
   mainWindow.on('close', (event) => {
@@ -239,6 +259,8 @@ app.on('ready', () => {
   });
   onSessionSegment((segment) => mainWindow?.webContents.send('session-segment', segment));
   onSessionBlock((event) => mainWindow?.webContents.send('session-block', event));
+  watchVault();
+  onLibraryChanged((change) => mainWindow?.webContents.send('library-changed', change));
   modelManager.onProgress((progress) => mainWindow?.webContents.send('download-progress', progress));
   handleServerStatus();
 
@@ -274,6 +296,7 @@ app.on('before-quit', () => {
   }
   modelManager.cancelDownload();
   whisperServer.stop();
+  stopWatching();
 });
 
 const startRecordingSession = async () => {
@@ -438,8 +461,16 @@ ipcMain.handle('get-settings', () => {
 
 ipcMain.handle('save-settings', async (_event, settings: any) => {
   const before = getSettings();
+  if (typeof settings?.vaultPath === 'string' && settings.vaultPath !== before.vaultPath && isSessionActive()) {
+    throw new Error('Stop the recording session before changing the vault.');
+  }
   saveSettings(settings);
   const after = getSettings();
+
+  if (before.vaultPath !== after.vaultPath) {
+    watchVault();
+    mainWindow?.webContents.send('library-changed', { paths: [] });
+  }
 
   if (before.forceCpu && !after.forceCpu) {
     saveSettings({ gpuFallbackVersion: null });
@@ -534,3 +565,10 @@ ipcMain.handle('session-status', () => sessionStatus());
 ipcMain.handle('list-capture-devices', () => captureDevices());
 ipcMain.handle('open-vault', () => openVault());
 ipcMain.handle('reveal-document', () => revealDocument());
+
+registerLibraryIpc(() => mainWindow);
+
+ipcMain.handle('copy-text', async (_event, text: unknown) => {
+  if (typeof text !== 'string') throw new Error('text must be text');
+  await clipboard.writeText(text);
+});
