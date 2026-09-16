@@ -418,6 +418,13 @@
       font-weight: normal !important;
       cursor: pointer;
     }
+    .session-strip { border-top: 1px solid #eee; margin-top: 16px; padding-top: 12px; text-align: left; }
+    .session-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+    .session-text {
+      background: #1e1e24; color: #e8e8ef; border-radius: 8px; padding: 12px;
+      min-height: 80px; max-height: 220px; overflow-y: auto; white-space: pre-wrap;
+      font-family: 'Courier New', monospace; font-size: 13px; margin: 0;
+    }
   </style>
 </head>
 <body>
@@ -455,6 +462,21 @@
     <div class="button-group">
       <button class="record-btn" id="recordBtn">Start Recording</button>
       <button class="copy-btn" id="copyBtn">Copy to Clipboard</button>
+    </div>
+
+    <div class="session-strip">
+      <div class="session-row">
+        <button class="record-btn" id="sessionStartBtn">Start session</button>
+        <button class="modal-btn modal-btn-cancel inline-btn" id="sessionPauseBtn" hidden>Pause</button>
+        <button class="modal-btn modal-btn-cancel inline-btn" id="sessionStopBtn" hidden>Stop</button>
+        <span class="model-meta" id="sessionState">No session</span>
+      </div>
+      <pre class="session-text" id="sessionText"></pre>
+      <div class="session-row">
+        <button class="link-btn" id="revealDocBtn" hidden>Reveal document</button>
+        <button class="link-btn" id="openVaultBtn">Open vault</button>
+        <span class="model-meta" id="sessionRefining"></span>
+      </div>
     </div>
 
     <div class="transcription-box empty" id="transcriptionBox">
@@ -499,6 +521,13 @@
           <label for="apiTokenInput">API Token (optional)</label>
           <input type="password" id="apiTokenInput" placeholder="Leave empty for local API">
         </div>
+
+        <div class="form-group">
+          <label style="display: flex; align-items: center; cursor: pointer; user-select: none; font-weight: normal;">
+            <input type="checkbox" id="refineExternalInput" style="width: auto; margin-right: 10px; cursor: pointer;">
+            <span>Refine session blocks through this API (sends session audio to it)</span>
+          </label>
+        </div>
       </div>
 
       <div class="form-group">
@@ -516,6 +545,56 @@
         <small style="display: block; margin-top: 5px; font-size: 11px; color: #666;">
           Select the microphone you want to use for recording
         </small>
+      </div>
+
+      <div class="form-group">
+        <label for="captureDeviceInput">Session microphone</label>
+        <select id="captureDeviceInput" style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; cursor: pointer;">
+          <option value="">System default</option>
+        </select>
+        <small style="display: block; margin-top: 5px; font-size: 11px; color: #666;">
+          The list fills in once a session has started.
+        </small>
+      </div>
+
+      <div class="form-group">
+        <label for="vaultPathInput">Vault folder</label>
+        <input type="text" id="vaultPathInput" placeholder="C:\Users\you\Documents\Dark-Whisper">
+      </div>
+
+      <div class="form-group">
+        <label for="liveModelInput">Live model (fast)</label>
+        <input type="text" id="liveModelInput" placeholder="ggml-base.en.bin">
+      </div>
+
+      <div class="form-group">
+        <label for="languageInput">Language</label>
+        <input type="text" id="languageInput" placeholder="en">
+      </div>
+
+      <div class="form-group">
+        <label for="blockMinutesInput">Minutes per block</label>
+        <input type="number" id="blockMinutesInput" min="1" max="30">
+      </div>
+
+      <div class="form-group">
+        <label for="refineModeInput">Refine during recording</label>
+        <select id="refineModeInput" style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; cursor: pointer;">
+          <option value="auto">Auto (skip when models are large)</option>
+          <option value="always">Always</option>
+          <option value="afterStop">After stopping</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label style="display: flex; align-items: center; cursor: pointer; user-select: none; font-weight: normal;">
+          <input type="checkbox" id="timestampHeadingsInput" style="width: auto; margin-right: 10px; cursor: pointer;">
+          <span>Write timestamp headings in the document</span>
+        </label>
+        <label style="display: flex; align-items: center; cursor: pointer; user-select: none; font-weight: normal; margin-top: 8px;">
+          <input type="checkbox" id="keepAudioInput" style="width: auto; margin-right: 10px; cursor: pointer;">
+          <span>Keep session audio after refinement</span>
+        </label>
       </div>
 
       <div class="modal-buttons">
@@ -702,6 +781,15 @@
     const forceCpuInput = document.getElementById('forceCpuInput');
     const builtinOptions = document.getElementById('builtinOptions');
     const externalOptions = document.getElementById('externalOptions');
+    const refineExternalInput = document.getElementById('refineExternalInput');
+    const captureDeviceInput = document.getElementById('captureDeviceInput');
+    const vaultPathInput = document.getElementById('vaultPathInput');
+    const liveModelInput = document.getElementById('liveModelInput');
+    const languageInput = document.getElementById('languageInput');
+    const blockMinutesInput = document.getElementById('blockMinutesInput');
+    const refineModeInput = document.getElementById('refineModeInput');
+    const timestampHeadingsInput = document.getElementById('timestampHeadingsInput');
+    const keepAudioInput = document.getElementById('keepAudioInput');
 
     function syncServerModeUi() {
       const external = serverModeExternal.checked;
@@ -721,7 +809,24 @@
       serverModeBuiltin.checked = settings.serverMode !== 'external';
       serverModeExternal.checked = settings.serverMode === 'external';
       forceCpuInput.checked = settings.forceCpu === true;
+      refineExternalInput.checked = settings.refineWithExternalApi === true;
+      vaultPathInput.value = settings.vaultPath || '';
+      liveModelInput.value = settings.liveModelId || 'ggml-base.en.bin';
+      languageInput.value = settings.language || 'en';
+      blockMinutesInput.value = settings.blockMinutes || 2;
+      refineModeInput.value = settings.refineDuringRecording || 'auto';
+      timestampHeadingsInput.checked = settings.timestampHeadings === true;
+      keepAudioInput.checked = settings.keepSessionAudio === true;
       syncServerModeUi();
+
+      // Session microphones come from the live engine; keep a saved name even when it is not listed.
+      const captureNames = (await window.api.listCaptureDevices().catch(() => [])).map((d) => d.name);
+      if (settings.captureDeviceName && !captureNames.includes(settings.captureDeviceName)) {
+        captureNames.push(settings.captureDeviceName);
+      }
+      captureDeviceInput.replaceChildren(new Option('System default', ''));
+      captureNames.forEach((name) => captureDeviceInput.append(new Option(name, name)));
+      captureDeviceInput.value = settings.captureDeviceName || '';
 
       // Load available audio devices
       try {
@@ -758,6 +863,16 @@
           micDevice: micDeviceInput.value || 'default',
           serverMode: serverModeExternal.checked ? 'external' : 'builtin',
           forceCpu: forceCpuInput.checked,
+          refineWithExternalApi: refineExternalInput.checked,
+          captureDeviceName: captureDeviceInput.value,
+          // A blank vault would write documents to the working directory; keep the current one.
+          vaultPath: vaultPathInput.value.trim() || undefined,
+          liveModelId: liveModelInput.value.trim() || 'ggml-base.en.bin',
+          language: languageInput.value.trim() || 'en',
+          blockMinutes: Math.max(1, Math.min(30, Number(blockMinutesInput.value) || 2)),
+          refineDuringRecording: refineModeInput.value,
+          timestampHeadings: timestampHeadingsInput.checked,
+          keepSessionAudio: keepAudioInput.checked,
         });
         // Reload settings and update display
         const settings = await window.api.getSettings();
@@ -975,6 +1090,60 @@
       if (event.target === modelsModal) modelsModal.classList.remove('show');
     });
     window.api.onOpenModels(openModels);
+
+    // Temporary session controls — replaced by the three-pane workspace in stage 2.
+    const sessionStartBtn = document.getElementById('sessionStartBtn');
+    const sessionPauseBtn = document.getElementById('sessionPauseBtn');
+    const sessionStopBtn = document.getElementById('sessionStopBtn');
+    const sessionState = document.getElementById('sessionState');
+    const sessionText = document.getElementById('sessionText');
+    const sessionRefining = document.getElementById('sessionRefining');
+    const revealDocBtn = document.getElementById('revealDocBtn');
+    const openVaultBtn = document.getElementById('openVaultBtn');
+
+    function renderSession(view) {
+      const active = ['starting', 'recording', 'paused', 'error'].includes(view.state);
+      sessionStartBtn.hidden = active;
+      sessionPauseBtn.hidden = !active || view.state === 'error';
+      sessionStopBtn.hidden = !active;
+      sessionPauseBtn.textContent = view.state === 'paused' ? 'Resume' : 'Pause';
+      revealDocBtn.hidden = !view.documentPath;
+
+      const parts = [];
+      if (view.state === 'idle') parts.push('No session');
+      else parts.push(view.state === 'paused' && view.muted ? 'paused (mic muted)' : view.state);
+      if (view.durationSec) parts.push(`${Math.round(view.durationSec)}s`);
+      if (view.blockIndex) parts.push(`block ${view.blockIndex}`);
+      if (view.message) parts.push(view.message);
+      sessionState.textContent = parts.join(' · ');
+      sessionRefining.textContent = view.refining > 0 ? `refining ${view.refining} block(s)…` : '';
+    }
+
+    window.api.onSessionStatus(renderSession);
+    window.api.getSessionStatus().then(renderSession);
+
+    window.api.onSessionSegment(({ text }) => {
+      sessionText.textContent = `${sessionText.textContent}${sessionText.textContent ? ' ' : ''}${text}`;
+      sessionText.scrollTop = sessionText.scrollHeight;
+    });
+
+    sessionStartBtn.addEventListener('click', async () => {
+      sessionText.textContent = '';
+      try {
+        renderSession(await window.api.startSession());
+      } catch (error) {
+        showError(cleanIpcError(error));
+      }
+    });
+
+    sessionPauseBtn.addEventListener('click', async () => {
+      const view = await window.api.getSessionStatus();
+      await (view.state === 'paused' ? window.api.resumeSession() : window.api.pauseSession());
+    });
+
+    sessionStopBtn.addEventListener('click', () => window.api.stopSession().catch((e) => showError(cleanIpcError(e))));
+    revealDocBtn.addEventListener('click', () => window.api.revealDocument());
+    openVaultBtn.addEventListener('click', () => window.api.openVault());
   </script>
 </body>
 </html>
