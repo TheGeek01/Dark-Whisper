@@ -120,7 +120,7 @@ jobs:
             '-DGGML_NATIVE=OFF',
             '-DGGML_BACKEND_DL=ON',
             '-DGGML_CPU_ALL_VARIANTS=ON',
-            '-DWHISPER_SDL2=ON',
+            '-DWHISPER_SDL2=ON'
           )
           cmake -B build-cpu @common
           if ($LASTEXITCODE -ne 0) { throw 'cmake configure (cpu) failed' }
