@@ -36,6 +36,7 @@ function write(rel, content) {
 write('2026-09-01-0900-kickoff.md', '---\ntitle: Kickoff\ncreated: 2026-09-01T09:00:00Z\n---\n\n<!-- dw:block 1 t=0-120 -->\nThe quarterly budget\n');
 write('Clients/acme.md', 'plain note\n');
 write('hostile.md', '# Hostile\n\n<img src=x onerror="window.__pwned=1">\n<script>window.__pwned=2</script>\n');
+write('remote-image.md', '# Remote\n\n<img src="//127.0.0.1/share/x.png">\n\n![r](//127.0.0.1/share/y.png)\n');
 write('smoke-delete-me.md', 'delete me\n');
 
 const failures = [];
@@ -134,6 +135,17 @@ try {
   );
   check('document HTML is sanitised', hostile.pwned === null && hostile.scripts === 0 && hostile.handlers === 0, js(hostile));
 
+  await app.evaluate(
+    "document.addEventListener('securitypolicyviolation', (e) => (window.__cspBlocked ??= []).push(e.blockedURI))",
+  );
+  await click('[data-key="doc:remote-image.md"]');
+  await waitFor("document.getElementById('docTitle').textContent === 'remote-image'");
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  const remote = await app.evaluate(
+    "({ blocked: window.__cspBlocked ?? [], zeroWidth: [...document.querySelectorAll('#docBody img')].every((img) => img.naturalWidth === 0) })",
+  );
+  check('remote and UNC images are blocked', remote.blocked.length > 0 && remote.zeroWidth, js(remote));
+
   await click('[data-key="folder:"]');
   await click('#newFolderBtn');
   await answerAsk({ text: 'Archive' });
@@ -183,8 +195,13 @@ try {
   app?.close();
   if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F']);
   else child.kill();
-  rmDir(vault);
-  rmDir(profile);
+  for (const dir of [vault, profile]) {
+    try {
+      rmDir(dir);
+    } catch (error) {
+      console.warn(`Could not remove ${dir}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 }
 
 console.log(failures.length === 0 ? '\nAll workspace checks passed.' : `\n${failures.length} check(s) failed.`);
