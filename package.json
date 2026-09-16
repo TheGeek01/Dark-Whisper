@@ -5,7 +5,7 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc && npm run build:renderer",
-    "build:renderer": "tsc -p tsconfig.renderer.json && node scripts/copy-vendor.js",
+    "build:renderer": "node -e \"require('fs').rmSync('public/js',{recursive:true,force:true})\" && tsc -p tsconfig.renderer.json && node scripts/copy-vendor.js",
     "watch": "tsc --watch",
     "watch:renderer": "tsc -p tsconfig.renderer.json --watch",
     "start": "npm run build && install-electron && electron .",
