@@ -132,8 +132,14 @@ export async function openSettings(): Promise<void> {
   f.timestampHeadings.checked = settings.timestampHeadings;
   f.keepAudio.checked = settings.keepSessionAudio;
   syncServerMode();
-  await Promise.all([fillMicDevices(settings.micDevice), fillCaptureDevices(settings.captureDeviceName)]);
   byId<HTMLDialogElement>('settingsDialog').showModal();
+  const saveBtn = byId<HTMLButtonElement>('settingsSaveBtn');
+  saveBtn.disabled = true;
+  try {
+    await Promise.all([fillMicDevices(settings.micDevice), fillCaptureDevices(settings.captureDeviceName)]);
+  } finally {
+    saveBtn.disabled = false;
+  }
 }
 
 async function saveSettingsFromDialog(): Promise<void> {
