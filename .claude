@@ -23,7 +23,7 @@ Repository: https://github.com/TheGeek01/Dark-Whisper (fork of dniasoff/whisper-
 - **Keystrokes**: @nut-tree-fork/libnut 4.2.6 (`keyTap('v', 'control')`)
 - **HTTP**: axios 1.20.0 | **Settings**: electron-store 11.0.2 | **Multipart**: form-data 4.0.6
 - **Build**: electron-builder 26.15.3 (config only in `electron-builder.yml`)
-- **Tests**: Jest 30.5.1 + ts-jest — 328 tests, 27 suites | **Lint**: ESLint 10
+- **Tests**: Jest 30.5.1 + ts-jest — 332 tests, 28 suites | **Lint**: ESLint 10
 
 ## Architecture
 Logic lives in Electron-free modules; one wiring module touches Electron. Jest cannot load Electron, so tests must never import `electron`, `electron-store`, `settingsService`, `whisperRuntime`, `streamRuntime`, `sessionRuntime`, `libraryRuntime`, `appIdentity` or `main`.

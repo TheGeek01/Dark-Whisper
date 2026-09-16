@@ -82,7 +82,7 @@ Transcription engine: whisper.cpp b5130 - whisper-server and whisper-stream
   npm run watch         → Auto-compile on changes
   npm start             → Build & launch app
   npm run dev           → Development with hot reload
-  npm test              → Unit tests (328 tests, 27 suites)
+  npm test              → Unit tests (332 tests, 28 suites)
   npm run lint          → ESLint
   npm run whisper:fetch → Download pinned whisper.cpp CPU binaries
   npm run stream:probe  → Run the live engine alone

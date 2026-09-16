@@ -383,17 +383,16 @@ export async function startSession(folder = ''): Promise<SessionStatusView> {
   const documentPath = documents.createDocument(uniqueDocumentId(targetDir, base), frontmatter, target.folder);
 
   let ctx: SessionContext | null = null;
-  // Finished blocks are protected by their own hash when refined; the block still being
-  // recorded has no hash yet, so it is marked and will not be queued.
+  // An outside change that touched no block (a line-ending resave, the frontmatter) is not worth a
+  // warning.
   const store = new GuardedStore(documents, (changed) => {
     if (!ctx) return;
-    if (!ctx.outsideEditNoticed) {
+    ctx.service.noteOutsideEdit(changed);
+    if (changed.length > 0 && !ctx.outsideEditNoticed) {
       ctx.outsideEditNoticed = true;
       addMessage(ctx, OUTSIDE_EDIT_MESSAGE);
+      emit();
     }
-    const live = ctx.stopped ? null : ctx.service.getInfo().blockIndex;
-    if (live !== null && changed.includes(live)) ctx.service.markEdited(live);
-    emit();
   });
   store.noteWrite(documentPath);
 

@@ -531,7 +531,7 @@ Dark-Whisper/
 │   │   ├── libraryService.ts      # Vault tree, search, moves, path guard
 │   │   ├── libraryWatch.ts        # Change batching, polling diff
 │   │   └── libraryRuntime.ts      # Library IPC and vault watcher
-│   └── __tests__/                 # Unit tests (328 tests, 27 suites)
+│   └── __tests__/                 # Unit tests (332 tests, 28 suites)
 ├── public/
 │   └── index.html, app.css        # Workspace markup and dark theme
 ├── assets/

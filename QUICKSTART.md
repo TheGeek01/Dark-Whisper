@@ -89,7 +89,7 @@ Prints each segment as you speak (Ctrl+C to stop). Add a capture id after the mo
 | `npm run watch` | Watch files and auto-compile |
 | `npm start` | Build and launch the app |
 | `npm run dev` | Development mode with hot reload |
-| `npm test` | Run the unit tests (328 tests) |
+| `npm test` | Run the unit tests (332 tests) |
 | `npm run lint` | Check code style |
 | `npm run whisper:fetch` | Download the pinned whisper.cpp CPU binaries |
 | `npm run stream:probe -- <model>` | Run the live engine alone |

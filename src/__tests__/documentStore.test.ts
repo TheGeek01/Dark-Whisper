@@ -220,19 +220,6 @@ describe('DocumentStore', () => {
     store.deleteDocument(file);
     expect(fs.existsSync(file)).toBe(false);
   });
-
-  it('hashes the whole file so outside edits can be detected', () => {
-    const file = store.createDocument('s1', FM);
-    const before = store.fileHash(file);
-    expect(store.fileHash(file)).toBe(before);
-
-    store.appendSegment(file, 'our own write');
-    const afterOurs = store.fileHash(file);
-    expect(afterOurs).not.toBe(before);
-
-    fs.appendFileSync(file, 'someone edited this in Obsidian\n');
-    expect(store.fileHash(file)).not.toBe(afterOurs);
-  });
 });
 
 describe('DocumentStore.createDocument folders', () => {

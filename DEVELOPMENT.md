@@ -142,7 +142,7 @@ session-stop → engine and SoX stopped, final block queued, duration written;
 ### Documents and refinement
 
 - Blocks are delimited by `<!-- dw:block <n> t=<startSec>-<endSec> -->`. A block is replaced only when its text still hashes (SHA256 of the trimmed text) to what we recorded when it closed.
-- `GuardedStore` compares the file with the exact text we last wrote before **every** read or write. A difference means another program edited the file: the outside text becomes the new baseline, and `changedBlocks` reports which blocks changed. Finished blocks are then protected by their own hash when refined (`skipped-edited`); the block still being recorded is marked with `SessionService.markEdited` and is closed as `edited` (shown as skipped) instead of being queued. Every other block is still refined. A file that cannot be read at that moment (a sync client holding it) is not treated as an edit.
+- `GuardedStore` compares the file with the exact text we last wrote before **every** read or write. A difference means another program edited the file: the outside text becomes the new baseline, and `changedBlocks` reports which blocks changed. Finished blocks are then protected by their own hash when refined (`skipped-edited`); the block still being recorded is marked through `SessionService.noteOutsideEdit` and is closed as `edited` (shown as skipped) instead of being queued. Every other block is still refined. A file that cannot be read at that moment (a sync client holding it) is not treated as an edit.
 - Stopping a session waits for SoX to exit before deleting the session audio (Windows refuses to delete a file that is still open), and retries the delete a few times.
 - Each session owns its document, store and queue, so a stopped session that is still refining can never write into the next one.
 - Refinement runs only when allowed: built-in server `ready` (or external mode with `refineWithExternalApi`), and during recording only if `refineDuringRecording` permits (`auto` defers when the live and refine model files exceed 2 GB). Permission is re-checked whenever the server status changes.
@@ -207,7 +207,7 @@ npx jest src/__tests__/whisperServer.test.ts    # one suite
 npm run test:coverage
 ```
 
-328 tests across 27 suites. Conventions:
+332 tests across 28 suites. Conventions:
 
 - Use real filesystem work in a temp directory (`fs.mkdtempSync(os.tmpdir())`) rather than mocking `fs`.
 - Inject fakes for processes, HTTP and clocks; never spawn a real process or hit the network, so the suite also passes on the Ubuntu CI runners.

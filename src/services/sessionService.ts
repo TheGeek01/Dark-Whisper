@@ -107,6 +107,15 @@ export class SessionService {
     this.editedBlocks.add(blockIndex);
   }
 
+  // Another program changed these blocks. The block still being recorded has no hash yet, so it
+  // is marked; finished blocks are protected by their hash when refined. While a block closes,
+  // info.blockIndex is still that block, and end() closes the last block before stopping.
+  noteOutsideEdit(changed: readonly number[]): void {
+    if (this.info.state !== 'stopped' && changed.includes(this.info.blockIndex)) {
+      this.markEdited(this.info.blockIndex);
+    }
+  }
+
   // A block with no speech in it has nothing to refine, so it is closed without a job, and so
   // is a block edited outside the app. Reading the text may itself detect such an edit, so the
   // edited check comes after the read.

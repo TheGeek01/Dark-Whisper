@@ -280,12 +280,4 @@ export class DocumentStore {
     }
   }
 
-  // Lets callers notice an edit made outside the app between two of our own writes.
-  fileHash(file: string): string {
-    try {
-      return hashText(this.read(file));
-    } catch {
-      return '';
-    }
-  }
 }
