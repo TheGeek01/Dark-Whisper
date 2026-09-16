@@ -14,6 +14,8 @@ export interface Settings {
   modelId: string | null;
   forceCpu: boolean;
   gpuFallbackVersion: string | null;
+  liveModelId: string;
+  language: string;
 }
 
 // Must be checked before the store is created, because creating it writes the defaults to disk.
@@ -30,6 +32,8 @@ const store = new Store({
     modelId: null,
     forceCpu: false,
     gpuFallbackVersion: null,
+    liveModelId: 'ggml-base.en.bin',
+    language: 'en',
   },
 }) as unknown as Store<Settings>;
 
@@ -50,6 +54,8 @@ export function getSettings(): Settings {
     modelId: storeAny.get('modelId', null),
     forceCpu: storeAny.get('forceCpu', false),
     gpuFallbackVersion: storeAny.get('gpuFallbackVersion', null),
+    liveModelId: storeAny.get('liveModelId', 'ggml-base.en.bin'),
+    language: storeAny.get('language', 'en'),
   };
 }
 

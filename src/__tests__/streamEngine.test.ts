@@ -55,7 +55,7 @@ function setup() {
 }
 
 describe('buildStreamArgs', () => {
-  it('uses VAD mode, the model, language, device and audio saving', () => {
+  it('uses VAD mode, the model, language, and device', () => {
     expect(buildStreamArgs(OPTS)).toEqual([
       '-m', 'C:/models/ggml-base.en.bin',
       '--step', '0',
@@ -64,7 +64,6 @@ describe('buildStreamArgs', () => {
       '-t', '4',
       '-l', 'en',
       '-c', '1',
-      '-sa',
       '-f', 'live.txt',
     ]);
   });
@@ -73,6 +72,7 @@ describe('buildStreamArgs', () => {
     const args = buildStreamArgs({ ...OPTS, captureId: null, forceCpu: true });
     expect(args).not.toContain('-c');
     expect(args).toContain('-ng');
+    expect(args).not.toContain('-sa');
   });
 });
 

@@ -33,6 +33,9 @@ export function parseStreamLine(raw: string, source: StreamSource): StreamEvent 
     // stdout carries only [Start speaking], transcript timestamps, and speech text
     if (line === READY_MARKER) return { kind: 'ready' };
 
+    // VAD mode prints segment markers like "### Transcription 7 END" - ignore these
+    if (line.startsWith('### ')) return null;
+
     const timestamped = TIMESTAMPED.exec(line);
     if (timestamped) {
       const text = timestamped[1].trim();

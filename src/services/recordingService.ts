@@ -12,7 +12,7 @@ let recordingProcess: ReturnType<typeof spawn> | null = null;
  * Get the path to sox.exe
  * Checks multiple locations: packaged app, development node_modules, and system PATH
  */
-function getSoxPath(): string {
+export function getSoxPath(): string {
   const appPath = app.getAppPath();
 
   // Check if we're in a packaged app (asar archive)

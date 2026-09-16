@@ -60,11 +60,12 @@ Reused unchanged: `whisperServer`/`whisperRuntime`, `apiService`, `settingsServi
 
 ```
 whisper-stream.exe -m <liveModelPath> --step 0 --length 10000 -vth 0.6 -t <threads>
-           -l <language> -c <captureId> -sa -f live.txt
+           -l <language> -c <captureId> -f live.txt
 ```
 - `--step 0` selects VAD sliding-window mode: a segment is emitted when speech is detected and the window closes, which is what makes text appear as you speak.
 - `--length 10000` is the window whisper sees per segment. `-vth 0.6` is upstream's suggested VAD threshold; it is a constant in this stage, tuned during manual testing, not a user setting.
-- Working directory is `userData/sessions/<sessionId>/`, so `--save-audio` writes `YYYYMMDDHHMMSS.wav` (16 kHz, 16-bit, mono) there, and `live.txt` is a crash sink.
+- Working directory is `userData/sessions/<sessionId>/`, and `live.txt` is a crash sink.
+- **Session audio is recorded separately by the bundled SoX** into `session-<n>.wav` (16 kHz, 16-bit, mono) in the same directory, started and stopped with the engine. whisper-stream's `--save-audio` is deliberately not used: it writes its current buffer on every loop iteration, producing a file that duplicates audio many times over and whose byte offsets bear no relation to elapsed time, which block slicing depends on. Verified that Windows shared-mode capture lets SoX and whisper-stream hold the microphone simultaneously.
 - `-ng` is added when the live model should run on CPU (mirrors the existing Force CPU setting).
 
 ### 4.2 Parsing (`streamOutput.ts`, pure)
@@ -73,6 +74,7 @@ whisper-stream.exe -m <liveModelPath> --step 0 --length 10000 -vth 0.6 -t <threa
 |---|---|
 | `[Start speaking]` on **stdout** | Engine ready → `listening` |
 | `main: found N capture devices:` / `   - Capture device #N: 'name'` on stderr | Device list for the picker |
+| `### Transcription N END` on stdout | whisper-stream's VAD segment marker — ignored |
 | `[00:00:01.000 --> 00:00:04.000]  text` on stdout | A finalized segment; timestamps are window-relative and discarded (the session clock is authoritative) |
 | Bare text line on stdout | A finalized segment (no-timestamp path) |
 | `couldn't open an audio device for capture` | Capture failure → `error` |

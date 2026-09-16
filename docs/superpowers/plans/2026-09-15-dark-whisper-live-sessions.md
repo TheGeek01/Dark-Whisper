@@ -16,9 +16,9 @@
 - Windows x64 only for packaging; unit tests must also pass on `ubuntu-latest`, so no test may spawn a real process, touch a real microphone, or call Windows-only commands.
 - Electron cannot load under Jest: files under `src/__tests__/` must never import `electron`, `electron-store`, `settingsService`, `whisperRuntime`, `streamRuntime`, `appIdentity`, or `main`.
 - Product name is exactly **Dark-Whisper**; `appId` stays `com.whisperdesktop.app`; installer artifact stays `Dark-Whisper-Setup-${version}.${ext}`.
-- Engine invocation is exactly: `whisper-stream.exe -m <liveModelPath> --step 0 --length 10000 -vth 0.6 -t <threads> -l <language> -c <captureId> -sa -f live.txt`, working directory `userData/sessions/<sessionId>/`, plus `-ng` when CPU is forced.
+- Engine invocation is exactly: `whisper-stream.exe -m <liveModelPath> --step 0 --length 10000 -vth 0.6 -t <threads> -l <language> -c <captureId> -f live.txt` (no `-sa`: session audio is recorded separately by SoX), working directory `userData/sessions/<sessionId>/`, plus `-ng` when CPU is forced.
 - Engine ready marker is the stdout line `[Start speaking]`; readiness timeout 60 000 ms; crash restart delays reuse `RESTART_DELAYS_MS` (1000, 5000, 15000) then `error`.
-- Saved audio is `YYYYMMDDHHMMSS.wav`, 16 kHz, 16-bit, mono → 32 000 bytes/sec, 44-byte WAV header.
+- Session audio is recorded by the bundled SoX as `session-<n>.wav`, 16 kHz, 16-bit, mono → 32 000 bytes/sec, 44-byte WAV header. whisper-stream's own `--save-audio` is NOT used: it rewrites its buffer every loop iteration, so its file is not a real-time recording.
 - Block length default 2 minutes (`blockMinutes`), measured on the audio clock. Block marker format: `<!-- dw:block <n> t=<startSec>-<endSec> -->`.
 - Refinement replaces a block only when its on-disk text still matches the SHA256 recorded when we wrote it.
 - Vault default `%USERPROFILE%\Documents\Dark-Whisper`; user data moves to `%APPDATA%\Dark-Whisper` with migration from `whisper-desktop` then `Whisper Desktop`.
@@ -731,7 +731,6 @@ describe('buildStreamArgs', () => {
       '-t', '4',
       '-l', 'en',
       '-c', '1',
-      '-sa',
       '-f', 'live.txt',
     ]);
   });
@@ -952,7 +951,7 @@ export function buildStreamArgs(opts: StreamLaunchOptions): string[] {
   if (opts.forceCpu) {
     args.push('-ng');
   }
-  args.push('-sa', '-f', LIVE_TEXT_SINK);
+  args.push('-f', LIVE_TEXT_SINK);
   return args;
 }
 
@@ -1170,6 +1169,14 @@ Run: `git status --short`.
 
 ### Task 5: Engine runtime wiring and a dev probe
 
+> **Amended after implementation.** whisper-stream's `--save-audio` turned out not to be a real-time
+> recording (it rewrites its buffer every loop iteration), so session audio is recorded separately by
+> the bundled SoX. This task therefore also provides `sessionAudioManifest()`, `audioFileName(index)`
+> and a SoX recorder started/stopped with the engine; `pickNewAudioFile`/`sessionDirName`/
+> `currentAudioFiles` below were removed as dead once that changed. The code blocks in this section
+> predate that amendment — Task 11 consumes the amended API.
+
+
 **Files:**
 - Create: `src/services/streamRuntime.ts`
 - Create: `src/services/sessionPaths.ts`
@@ -1180,8 +1187,8 @@ Run: `git status --short`.
 **Interfaces:**
 - Consumes: `StreamEngine`, `StreamEngineDeps`, `StreamLaunchOptions` (Task 4); `resolveStreamBinary` (Task 2); `whisperResourceDir`, `BinaryLocations` (existing); `getSettings` (existing).
 - Produces:
-  - `sessionPaths.ts` (pure): `newSessionId(now: Date): string` (`YYYYMMDD-HHmmss`), `sessionDirName(id: string): string`, `pickNewAudioFile(before: string[], after: string[]): string | null`
-  - `streamRuntime.ts`: `const streamEngine: StreamEngine`, `createSessionDir(sessionId: string): string`, `sessionsRoot(): string`, `resolveLiveModelPath(): string | null`, `startLiveEngine(args: { sessionId: string; captureId: number | null }): Promise<void>`, `stopLiveEngine(): void`, `currentAudioFiles(sessionId: string): string[]`
+  - `sessionPaths.ts` (pure): `newSessionId(now: Date): string` (`YYYYMMDD-HHmmss`), `audioFileName(index: number): string` (`session-1.wav`)
+  - `streamRuntime.ts`: `const streamEngine: StreamEngine`, `createSessionDir(sessionId: string): string`, `sessionsRoot(): string`, `resolveLiveModelPath(): string | null`, `startLiveEngine(args: { sessionId: string; captureId: number | null; deviceName: string }): Promise<void>`, `stopLiveEngine(): void`, `sessionAudioManifest(): { file: string; startSec: number }[]`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3037,7 +3044,7 @@ import { RefineJob, SessionService } from './sessionService';
 import { newSessionId } from './sessionPaths';
 import { CaptureDevice } from './streamOutput';
 import { getSettings } from './settingsService';
-import { startLiveEngine, stopLiveEngine, streamEngine, sessionsRoot, currentAudioFiles } from './streamRuntime';
+import { startLiveEngine, stopLiveEngine, streamEngine, sessionsRoot, sessionAudioManifest } from './streamRuntime';
 import { transcribeAudio } from './apiService';
 import { modelManager, whisperServer } from './whisperRuntime';
 
@@ -3056,7 +3063,6 @@ const segmentListeners = new Set<(s: { text: string; blockIndex: number }) => vo
 
 let session: SessionService | null = null;
 let queue: RefineQueue | null = null;
-let manifest: { file: string; startSec: number }[] = [];
 let sessionId: string | null = null;
 let documentPath: string | null = null;
 let statusMessage: string | undefined;
@@ -3122,17 +3128,18 @@ export function sessionStatus(): SessionStatusView {
   };
 }
 
+// The manifest comes from streamRuntime's SoX recorder (absolute paths, real-time audio).
+// Durations are derived from the files' current size, because the newest file is still growing.
 function audioManifest(): AudioEntry[] {
-  return manifest.map((entry) => {
-    const full = path.join(sessionsRoot(), sessionId!, entry.file);
+  return sessionAudioManifest().map((entry) => {
     let size = 0;
     try {
-      size = fs.statSync(full).size;
+      size = fs.statSync(entry.file).size;
     } catch {
       size = 0;
     }
     return {
-      file: full,
+      file: entry.file,
       startSec: entry.startSec,
       durationSec: Math.max(0, (size - WAV_HEADER_BYTES) / BYTES_PER_SECOND),
     };
@@ -3186,7 +3193,6 @@ export async function startSession(): Promise<SessionStatusView> {
   const settings = getSettings();
   const store = new DocumentStore(settings.vaultPath);
   sessionId = newSessionId(new Date());
-  manifest = [];
   statusMessage = undefined;
 
   const created = new Date().toISOString();
@@ -3285,17 +3291,9 @@ streamEngine.onSegment((segment) => {
   const blockIndex = session?.getInfo().blockIndex ?? 0;
   for (const l of segmentListeners) l({ text: segment.text, blockIndex });
 });
-streamEngine.onLaunch((launch) => {
-  if (!sessionId) return;
-  const before = manifest.map((m) => m.file);
-  // whisper-stream.exe creates its WAV as it starts; give it a moment, then record the new name.
-  setTimeout(() => {
-    const after = currentAudioFiles(sessionId!);
-    const added = after.filter((f) => f.toLowerCase().endsWith('.wav') && !before.includes(f)).sort();
-    const file = added[added.length - 1];
-    if (file) manifest.push({ file, startSec: launch.atMs / 1000 });
-  }, 500);
-});
+// SoX keeps recording across engine relaunches, so the audio timeline stays continuous and
+// only the document needs a gap marker — sessionService handles that from its own launch count.
+streamEngine.onLaunch(() => emit());
 streamEngine.onStatus(() => emit());
 micMute.onChange((muted) => {
   if (!isSessionActive()) return;

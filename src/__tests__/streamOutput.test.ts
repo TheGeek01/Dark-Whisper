@@ -48,6 +48,18 @@ describe('streamOutput', () => {
         });
       });
 
+      it('ignores VAD mode segment markers that start with "### "', () => {
+        expect(parseStreamLine('### Transcription 7 END', 'stdout')).toBeNull();
+        expect(parseStreamLine('### Transcription 1 START | t0 = 0 ms | t1 = 3000 ms', 'stdout')).toBeNull();
+      });
+
+      it('preserves speech containing hash characters (regression test)', () => {
+        expect(parseStreamLine('the issue is #42 in the tracker', 'stdout')).toEqual({
+          kind: 'segment',
+          text: 'the issue is #42 in the tracker',
+        });
+      });
+
       it('ignores empty and whitespace-only lines on stdout', () => {
         expect(parseStreamLine('', 'stdout')).toBeNull();
         expect(parseStreamLine('   ', 'stdout')).toBeNull();

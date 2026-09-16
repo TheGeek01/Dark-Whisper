@@ -58,7 +58,7 @@ export function buildStreamArgs(opts: StreamLaunchOptions): string[] {
   if (opts.forceCpu) {
     args.push('-ng');
   }
-  args.push('-sa', '-f', LIVE_TEXT_SINK);
+  args.push('-f', LIVE_TEXT_SINK);
   return args;
 }
 
