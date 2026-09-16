@@ -1,10 +1,11 @@
 ================================================================================
-WHISPER DESKTOP (Dark-Whisper) - PROJECT SUMMARY
+DARK-WHISPER - PROJECT SUMMARY
 Version 1.1.0
 ================================================================================
 
 ✅ PROJECT STRUCTURE
 ├── src/
+│   ├── appIdentity.ts             - App name + user-data migration (imported first)
 │   ├── main.ts                    - Electron app, tray, lifecycle, IPC handlers
 │   ├── preload.ts                 - Secure IPC bridge (context-isolated)
 │   └── services/
@@ -21,10 +22,23 @@ Version 1.1.0
 │       ├── serverOutput.ts        - Server log parsing, restart backoff
 │       ├── serverPaths.ts         - Server binary resolution
 │       ├── serverGate.ts          - Recording gate + status text
-│       └── whisperRuntime.ts      - Electron/Node wiring for the above
-├── public/index.html              - UI: status line, settings, models manager
+│       ├── whisperRuntime.ts      - Electron/Node wiring for the above
+│       ├── userDataMigration.ts   - Legacy user-data move plan
+│       ├── streamOutput.ts        - whisper-stream output parser
+│       ├── streamEngine.ts        - Live engine supervisor
+│       ├── streamRuntime.ts       - Live engine + SoX session audio wiring
+│       ├── sessionPaths.ts        - Session ids, audio file names
+│       ├── documentStore.ts       - Vault Markdown documents, hash guard
+│       ├── blockMath.ts           - Block ranges -> WAV byte ranges
+│       ├── sessionService.ts      - One session: segments -> document, blocks
+│       ├── blockRefiner.ts        - Refinement queue + memory guard
+│       ├── micMuteOutput.ts       - Core Audio mute shim
+│       ├── micMuteService.ts      - Mic mute polling
+│       └── sessionRuntime.ts      - Electron/Node wiring for sessions
+├── public/index.html              - UI: status line, settings, models, session strip
 ├── assets/whisper.ico             - Application icon
-├── scripts/fetch-whisper.js       - Dev: fetch pinned whisper.cpp CPU server
+├── scripts/fetch-whisper.js       - Dev: fetch pinned whisper.cpp CPU binaries
+├── scripts/stream-probe.js        - Dev: run the live engine alone
 ├── resources/whisper/             - Server binaries (generated, gitignored)
 ├── docs/superpowers/              - Design spec + implementation plan
 ├── dist/                          - Compiled JavaScript (generated)
@@ -51,36 +65,45 @@ Development:
   - eslint@10 + typescript-eslint - Code quality
   - @electron/rebuild             - Native module rebuilds
 
-Transcription engine: whisper.cpp b5130 (CPU + Vulkan builds produced in CI)
+Transcription engine: whisper.cpp b5130 - whisper-server and whisper-stream
+(+ SDL2), CPU + Vulkan builds produced in CI
 
 ✅ COMMANDS
   npm run build         → Compile TypeScript
   npm run watch         → Auto-compile on changes
   npm start             → Build & launch app
   npm run dev           → Development with hot reload
-  npm test              → Unit tests (123 tests, 11 suites)
+  npm test              → Unit tests (245 tests, 20 suites)
   npm run lint          → ESLint
-  npm run whisper:fetch → Download pinned whisper.cpp CPU server
+  npm run whisper:fetch → Download pinned whisper.cpp CPU binaries
+  npm run stream:probe  → Run the live engine alone
   npm run build:windows → Build the Windows installer
 
 ✅ KEY FEATURES
+0. Live sessions - whisper-stream writes a Markdown document in the vault as
+   you speak; 2-minute blocks are re-transcribed by whisper-server and
+   replaced unless edited; mic mute and the hotkey pause the session
 1. Built-in whisper.cpp server - bundled, started and supervised by the app;
    localhost only, GPU (Vulkan) with automatic CPU fallback
 2. Speech model manager - SHA256-verified downloads from Hugging Face plus
-   custom model links; stored in %APPDATA%\whisper-desktop\models
+   custom model links; stored in %APPDATA%\Dark-Whisper\models
 3. Global hotkey (Ctrl+Q) - press to start, press again to stop (5 min cap)
 4. Auto-paste - clipboard write, Ctrl+V, then previous clipboard restored
 5. Tray integration - status tooltip, Show/Hide, Models…, Exit
 6. Settings - server mode, Force CPU, hotkey, microphone, auto-mute,
-   external API URL and token
+   external API URL and token; session microphone, vault, live model,
+   language, block length, refinement mode, headings, keep audio
 7. External API support - OpenAI Whisper API or any compatible server;
    existing installs keep using their configured endpoint after upgrade
 
-✅ DATA LOCATIONS (%APPDATA%\whisper-desktop\)
+✅ DATA LOCATIONS (%APPDATA%\Dark-Whisper\, migrated from whisper-desktop)
   config.json                  - Settings
   models\                      - Downloaded speech models
   recordings\                  - Temporary audio (auto-deleted after 7 days)
   logs\whisper-server.log      - Server output, last 500 lines per run
+  logs\stream.log              - Live engine output
+  sessions\<id>\               - Session audio, removed after refinement
+  (Session documents live in the vault, default Documents\Dark-Whisper)
   whisper-server.pid           - Running server PID (for orphan cleanup)
 
 GETTING STARTED (development):

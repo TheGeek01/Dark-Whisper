@@ -1,4 +1,4 @@
-# Quick Start Guide - Whisper Desktop
+# Quick Start Guide - Dark-Whisper
 
 ## Setup (One-time)
 
@@ -11,7 +11,7 @@
    ```bash
    npm run whisper:fetch
    ```
-   Downloads the official whisper.cpp CPU build pinned in `whisper.version` into `resources/whisper/cpu`. Without this the app starts but reports that the server is not installed.
+   Downloads the official whisper.cpp CPU build pinned in `whisper.version` into `resources/whisper/cpu`: `whisper-server.exe` for dictation and refinement, and `whisper-stream.exe` plus `SDL2.dll` for live sessions. Without this the app starts but reports that the server is not installed.
 
    For a GPU build, point `WHISPER_SERVER_DIR` at a folder containing your own Vulkan `whisper-server.exe`, or use the `whisper-server` artifact from a CI run.
 
@@ -64,6 +64,23 @@ Using an external API instead? Set **Transcription server → External API** in 
 5. Press **`Ctrl+Q`** again to stop
 6. The transcription appears in the window and is pasted into whatever had focus
 
+### Testing a session
+
+1. Also download `base.en` (the default live model)
+2. Click **Start session** and talk for a while; text appears in the dark panel within ~2 s
+3. Click **Reveal document** to find the `.md` file in `Documents\Dark-Whisper`
+4. Tip: set **Minutes per block** to 1 to see refinement ("refining 1 block(s)…") sooner
+5. Click **Stop**
+
+### Testing the live engine alone
+
+```bash
+npm run build
+npm run stream:probe -- "%APPDATA%\Dark-Whisper\models\ggml-base.en.bin"
+```
+
+Prints each segment as you speak (Ctrl+C to stop). Add a capture id after the model to pick a microphone. It does not record session audio.
+
 ## Common Commands
 
 | Command | Purpose |
@@ -72,9 +89,10 @@ Using an external API instead? Set **Transcription server → External API** in 
 | `npm run watch` | Watch files and auto-compile |
 | `npm start` | Build and launch the app |
 | `npm run dev` | Development mode with hot reload |
-| `npm test` | Run the unit tests (123 tests) |
+| `npm test` | Run the unit tests (245 tests) |
 | `npm run lint` | Check code style |
-| `npm run whisper:fetch` | Download the pinned whisper.cpp CPU server |
+| `npm run whisper:fetch` | Download the pinned whisper.cpp CPU binaries |
+| `npm run stream:probe -- <model>` | Run the live engine alone |
 | `npm run build:windows` | Build the Windows installer |
 
 ## File Locations
@@ -82,10 +100,13 @@ Using an external API instead? Set **Transcription server → External API** in 
 - **Source Code**: `src/`
 - **Compiled Code**: `dist/` (auto-generated)
 - **Server Binaries**: `resources/whisper/{cpu,vulkan}/` (generated, gitignored)
-- **Recordings**: `%APPDATA%/whisper-desktop/recordings/`
-- **Speech Models**: `%APPDATA%/whisper-desktop/models/`
-- **Server Log**: `%APPDATA%/whisper-desktop/logs/whisper-server.log`
-- **Settings**: `%APPDATA%/whisper-desktop/config.json`
+- **Recordings**: `%APPDATA%/Dark-Whisper/recordings/`
+- **Speech Models**: `%APPDATA%/Dark-Whisper/models/`
+- **Server Log**: `%APPDATA%/Dark-Whisper/logs/whisper-server.log`
+- **Live Engine Log**: `%APPDATA%/Dark-Whisper/logs/stream.log`
+- **Session Audio**: `%APPDATA%/Dark-Whisper/sessions/`
+- **Session Documents**: `Documents/Dark-Whisper/` (the vault; change it in Settings)
+- **Settings**: `%APPDATA%/Dark-Whisper/config.json`
 
 ## Troubleshooting
 
@@ -99,7 +120,7 @@ Using an external API instead? Set **Transcription server → External API** in 
 - Or set `WHISPER_SERVER_DIR` to a folder holding `whisper-server.exe`
 
 **Status line red (`Server error`)?**
-- Click **Open log**, or read `%APPDATA%/whisper-desktop/logs/whisper-server.log`
+- Click **Open log**, or read `%APPDATA%/Dark-Whisper/logs/whisper-server.log`
 - `Model failed to load` → delete and re-download the model
 - Tick **Force CPU** in Settings if the GPU build misbehaves
 
@@ -107,6 +128,13 @@ Using an external API instead? Set **Transcription server → External API** in 
 - Close other apps using that shortcut, or change it in Settings
 - Check the console for hotkey registration errors
 - Remember the hotkey is ignored while the server is loading a model
+
+**Session shows no text?**
+- Install the live model (`base.en` by default)
+- Check **Session microphone** in Settings, and `%APPDATA%/Dark-Whisper/logs/stream.log`
+
+**Installed with npm 12 and there is no `sox.exe`?**
+- npm 12 skips dependency install scripts unless approved; run `node scripts/postinstall.js` inside `node_modules/node-mic`, or approve it with `npm install-scripts approve node-mic`
 
 **No audio recorded?**
 - Check Windows microphone settings and permissions

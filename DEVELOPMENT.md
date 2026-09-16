@@ -2,20 +2,23 @@
 
 ## Architecture
 
-The code is split so that all decision logic lives in modules that never import Electron, and a single thin layer wires those modules to Electron and the OS. That split is what makes the logic unit-testable: Jest cannot load Electron, so tests under `src/__tests__/` must never import `electron`, `electron-store`, `settingsService`, `whisperRuntime` or `main`.
+The code is split so that all decision logic lives in modules that never import Electron, and a single thin layer wires those modules to Electron and the OS. That split is what makes the logic unit-testable: Jest cannot load Electron, so tests under `src/__tests__/` must never import `electron`, `electron-store`, `settingsService`, `whisperRuntime`, `streamRuntime`, `sessionRuntime`, `appIdentity` or `main`.
 
 ### Main Process (main.ts)
+- Imports `appIdentity` first: it sets the app name and moves legacy user data before anything resolves `userData`
 - Handles Electron window lifecycle and the tray icon
 - Registers the global hotkey
 - Owns all IPC handlers
 - Starts the transcription server at launch and stops it on quit
 - Decides whether a recording may start (via `serverGate`)
+- Routes the hotkey: pause/resume during a session, quick dictation otherwise; refuses one mode while the other is active
 
 ### Renderer Process (public/index.html)
 - Vanilla JS, no framework; context-isolated, talks only through `window.api`
 - Shows recording status, the server status line, the setup banner
 - Settings modal (server mode, Force CPU, hotkey, microphone, auto-mute, external API)
 - Models modal (download, use, delete, custom URL, progress)
+- Temporary session strip (start, pause, stop, live text, reveal document, open vault); stage 2 replaces it
 - All dynamic text is set with `textContent`, never `innerHTML`
 
 ### Services Layer
@@ -31,12 +34,25 @@ Electron-free (unit-tested):
 | `serverPaths.ts` | Resolves `whisper-server.exe` for a backend (env override, packaged, dev) |
 | `serverGate.ts` | Whether recording may start, and the status line text |
 | `settingsMigration.ts` | Server-mode default: existing installs stay external, fresh installs built-in |
+| `userDataMigration.ts` | Which entries to move from `whisper-desktop` / `Whisper Desktop` into `Dark-Whisper` |
+| `streamOutput.ts` | Parses whisper-stream stdout/stderr: segments, device list, ready marker, failures |
+| `streamEngine.ts` | Live engine supervisor: `idle`, `starting`, `listening`, `paused`, `stopped`, `error` |
+| `sessionPaths.ts` | Session ids and session audio file names |
+| `documentStore.ts` | Vault Markdown: frontmatter, append, block replace with hash guard, list, search, rename |
+| `blockMath.ts` | Block time ranges, audio manifest → byte ranges, WAV headers |
+| `sessionService.ts` | One session: segments → document, block boundaries, refinement jobs, gap markers |
+| `blockRefiner.ts` | Refinement queue (one at a time, one retry) and the 2 GB memory guard |
+| `micMuteOutput.ts` | The inline PowerShell/C# Core Audio shim and its `muted:true|false` output |
+| `micMuteService.ts` | Polls the mute state and reports changes |
 
 Electron-bound (verified by build, lint and running the app):
 
 | Module | Responsibility |
 |--------|----------------|
 | `whisperRuntime.ts` | Real dependencies: spawn, free port, `/health` polling, PID file, log file, stale-process cleanup; owns the `whisperServer` and `modelManager` singletons |
+| `streamRuntime.ts` | Spawns whisper-stream, session directories, the SoX session-audio recorder and its manifest |
+| `sessionRuntime.ts` | Wires engine, document, refinement queue and mic mute into sessions; external-edit guard |
+| `appIdentity.ts` | App name and the user-data migration, at import time |
 | `settingsService.ts` | electron-store persistence |
 | `apiService.ts` | Transcription HTTP client (timeout differs per mode) |
 | `recordingService.ts` | SoX recording, device enumeration |
@@ -82,6 +98,51 @@ pasteService.pasteTranscriptClipboard(text)
 IPC: 'transcription-complete' → renderer updates the UI
 ```
 
+## Live Sessions
+
+```
+session-start (IPC)
+    ↓
+sessionRuntime.startSession()
+    ├─ DocumentStore.createDocument → <vault>/YYYY-MM-DD-HHmm-untitled.md (-2, -3… on collision)
+    ├─ SessionService.begin → opens block 1
+    └─ streamRuntime.startLiveEngine
+         ├─ SoX records userData/sessions/<id>/session-1.wav (16 kHz, 16-bit mono)
+         └─ streamEngine spawns whisper-stream.exe in that directory
+    ↓
+streamEngine 'segment' { text, atMs }
+    ↓
+SessionService.segment → closes blocks whose end has passed (audio clock),
+  appends the text; a closed non-empty block → RefineJob { index, range, hash }
+    ↓
+RefineQueue → slice the block's bytes out of the WAV(s) → POST to whisper-server
+  → SessionService.applyRefinement → DocumentStore.replaceBlock (hash guard)
+    ↓
+session-stop → engine and SoX stopped, final block queued, duration written;
+  session audio removed once the queue is empty (unless keepSessionAudio)
+```
+
+### whisper-stream contract
+
+`streamOutput.ts` is the **only** place that knows the output format; re-check it when bumping `whisper.version`.
+
+- Invocation: `whisper-stream.exe -m <live model> --step 0 --length 10000 -vth 0.6 -t <threads> -l <language> [-c <capture id>] [-ng] -f live.txt`, working directory `userData/sessions/<id>/`.
+- Every diagnostic, including the device list (`   - Capture device #N: 'name'`), goes to **stderr**; only `[Start speaking]` and transcript text go to **stdout**. The parser is stream-aware and uses no "looks like a log line" heuristic, which once swallowed real speech.
+- Ready marker: `[Start speaking]`, within 60 s. Crashes restart after 1 s, 5 s, 15 s, then `error`. Each relaunch writes a gap marker into the document.
+- `--save-audio` is **not** used: in VAD mode it rewrites its 2-second buffer ~10 times a second, so its WAV is not a real-time recording. SoX records the session instead, and keeps running across engine restarts so the audio timeline stays continuous.
+
+### Documents and refinement
+
+- Blocks are delimited by `<!-- dw:block <n> t=<startSec>-<endSec> -->`. A block is replaced only when its text still hashes (SHA256 of the trimmed text) to what we recorded when it closed.
+- `sessionRuntime` wraps the store so that **every** write first compares the file's hash with our previous write. A mismatch means another program edited the file: appending continues, refinement stops for that session.
+- Each session owns its document, store and queue, so a stopped session that is still refining can never write into the next one.
+- Refinement runs only when allowed: built-in server `ready` (or external mode with `refineWithExternalApi`), and during recording only if `refineDuringRecording` permits (`auto` defers when the live and refine model files exceed 2 GB). Permission is re-checked whenever the server status changes.
+- Refinement jobs slice `44 + floor(offset × 32000)` … bytes per overlapping WAV, skipping gaps; less than one second of audio is skipped.
+
+### Microphone mute
+
+Pause mutes the Windows default capture endpoint through an inline C# shim run by `powershell.exe` (`IMMDeviceEnumerator` → `IAudioEndpointVolume`). The COM declarations need `[ComImport]`, and `IAudioEndpointVolume` has **eleven** methods before `SetMute`; getting either wrong fails the cast or calls the wrong vtable slot. During a session the state is polled every second; a change from outside the app pauses or resumes. Each call starts PowerShell and compiles the shim (~0.8 s), so polling is limited to active sessions.
+
 ## Server Supervision
 
 `whisperServer.ts` receives every dependency by injection, which is how the tests drive it with a fake process and fake timers.
@@ -95,7 +156,7 @@ IPC: 'transcription-complete' → renderer updates the UI
 - **Generations:** every launch increments a counter, and stale callbacks are ignored. This is what keeps restart, model switch and quit from racing.
 - **Orphans:** the server PID is written to `userData/whisper-server.pid`. At startup a leftover process is ended only if its image name is `whisper-server.exe`.
 
-Server binaries are resolved in this order (per backend): `WHISPER_SERVER_DIR` (Vulkan only, dev override) → `process.resourcesPath/whisper/<backend>/` when packaged → `<repo>/resources/whisper/<backend>/` in development. The bundled whisper.cpp version is read from `whisper/VERSION`.
+Server binaries (and `whisper-stream.exe`, the same way) are resolved in this order (per backend): `WHISPER_SERVER_DIR` (Vulkan only, dev override) → `process.resourcesPath/whisper/<backend>/` when packaged → `<repo>/resources/whisper/<backend>/` in development. The bundled whisper.cpp version is read from `whisper/VERSION`.
 
 ## Model Downloads
 
@@ -117,6 +178,11 @@ Server binaries are resolved in this order (per backend): `WHISPER_SERVER_DIR` (
 | `server-status` | main → renderer | Status changed |
 | `download-progress` | main → renderer | Bytes, speed, state, error |
 | `open-models` | main → renderer | Open the Models modal (tray, notification, hotkey) |
+| `session-start`, `session-pause`, `session-resume`, `session-stop`, `session-status` | invoke | Session control; `session-start` returns the status view |
+| `list-capture-devices` | invoke | Last device list seen from whisper-stream |
+| `open-vault`, `reveal-document` | invoke | Open the vault folder / show the current document |
+| `session-status` | main → renderer | `{ state, documentPath, blockIndex, durationSec, refining, message, muted }` |
+| `session-segment` | main → renderer | `{ text, blockIndex }` for each live segment |
 | `transcription-complete`, `recording-started`, `recording-stopped`, `error` | main → renderer | Pre-existing events |
 
 ## Testing
@@ -127,7 +193,7 @@ npx jest src/__tests__/whisperServer.test.ts    # one suite
 npm run test:coverage
 ```
 
-123 tests across 11 suites. Conventions:
+245 tests across 20 suites. Conventions:
 
 - Use real filesystem work in a temp directory (`fs.mkdtempSync(os.tmpdir())`) rather than mocking `fs`.
 - Inject fakes for processes, HTTP and clocks; never spawn a real process or hit the network, so the suite also passes on the Ubuntu CI runners.
@@ -149,6 +215,15 @@ Automated tests cannot click the tray or press hotkeys, so before a release:
 - [ ] Launch a second instance while the first is ready → the first keeps working
 - [ ] A Windows account whose profile path contains non-ASCII characters
 - [ ] On a Vulkan-capable GPU, the status line shows `(GPU)`
+- [ ] Upgrade from a `whisper-desktop` profile → settings and models appear under `%APPDATA%\Dark-Whisper`
+- [ ] Session: text appears within ~2 s and the `.md` grows on disk
+- [ ] Session: a block closes, "refining" appears, and the block text is replaced in the file
+- [ ] Session: edit a block in another editor during the session → that block is not replaced, refinement pauses
+- [ ] Session: mute the microphone (Windows or hardware key) → paused; unmute → recording
+- [ ] Session: hotkey pauses and resumes; quick dictation is refused during a session and vice versa
+- [ ] Session: kill `whisper-stream.exe` → a gap marker appears and recording continues
+- [ ] Session: a session longer than 30 minutes; a vault on another drive or a synced folder
+- [ ] Session: stop → session audio removed after refinement (kept with Keep session audio)
 
 ## Debugging
 
@@ -157,12 +232,12 @@ Press `Ctrl+Shift+I` in the app window, or add `mainWindow.webContents.openDevTo
 
 ### Server Output
 ```powershell
-type $env:APPDATA\whisper-desktop\logs\whisper-server.log
+type $env:APPDATA\Dark-Whisper\logs\whisper-server.log
 ```
 
 ### Run the Server by Hand
 ```powershell
-resources\whisper\cpu\whisper-server.exe -m $env:APPDATA\whisper-desktop\models\ggml-tiny.en.bin `
+resources\whisper\cpu\whisper-server.exe -m $env:APPDATA\Dark-Whisper\models\ggml-tiny.en.bin `
   --host 127.0.0.1 --port 18080 --inference-path /v1/audio/transcriptions
 # then, in another shell:
 curl http://127.0.0.1:18080/health
@@ -171,10 +246,17 @@ curl -X POST http://127.0.0.1:18080/v1/audio/transcriptions -F "file=@sample.wav
 
 In Git Bash, prefix such commands with `MSYS_NO_PATHCONV=1`, or MSYS rewrites `/v1/...` into a Windows path and the request 404s.
 
+### Live Engine Output
+```powershell
+type $env:APPDATA\Dark-Whisper\logs\stream.log
+npm run stream:probe -- $env:APPDATA\Dark-Whisper\models\ggml-base.en.bin
+```
+
 ### Recordings and Models
 ```powershell
-explorer $env:APPDATA\whisper-desktop\recordings
-explorer $env:APPDATA\whisper-desktop\models
+explorer $env:APPDATA\Dark-Whisper\recordings
+explorer $env:APPDATA\Dark-Whisper\models
+explorer $env:APPDATA\Dark-Whisper\sessions
 ```
 
 ## Known Limitations & Gotchas
@@ -197,6 +279,12 @@ It binds `127.0.0.1` and is never started with `--convert`, but any local progra
 ### 6. Microphone permissions
 Windows may block capture: Settings → Privacy & Security → Microphone, and ensure the app (or `electron.exe` in development) is allowed.
 
+### 7. npm 12 skips install scripts
+npm 12 does not run dependency install scripts unless they are approved. After `npm ci` there is no `node_modules/node-mic/sox-win32/sox.exe` (and no Electron binary until `install-electron` runs). Run `node scripts/postinstall.js` inside `node_modules/node-mic`, or approve the package with `npm install-scripts approve node-mic`. CI uses the npm bundled with Node 24, which still runs them.
+
+### 8. Pausing mutes the default microphone
+The mute shim acts on the Windows default capture endpoint, not on the session microphone chosen in Settings.
+
 ## Deployment
 
 ### Build the Installer Locally
@@ -218,7 +306,7 @@ For production releases, sign the executable to avoid SmartScreen warnings.
 
 ## Future Enhancements
 
-1. **Language selection** - transcription language is currently fixed to English
+1. **Session workspace** - document list, search and editor replacing the temporary session strip
 2. **Voice activity detection** - auto-stop on silence instead of a second hotkey press
 3. **Transcription history** - store and display past transcriptions
 4. **Dark mode** - theme support

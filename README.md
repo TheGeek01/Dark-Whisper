@@ -1,11 +1,14 @@
-# Whisper Desktop
+# Dark-Whisper
 
-A lightweight Windows desktop application that lets you record audio and transcribe it to text with a single keyboard shortcut. The transcribed text is automatically pasted into the active application.
+A Windows dictation workspace. Press a shortcut to dictate into any application, or start a **session** and Dark-Whisper writes a Markdown file as you speak, then quietly re-transcribes each finished block at higher quality.
 
 Transcription runs on a **built-in [whisper.cpp](https://github.com/ggml-org/whisper.cpp) server** that ships with the app, so a fresh install needs nothing else: pick a speech model, and dictation works offline. You can still point the app at OpenAI's Whisper API or any other compatible server instead.
 
 ## Features
 
+- **Live Sessions** - Transcribe continuously into a Markdown file in a vault folder you choose; the file is never more than one sentence behind you
+- **Block Refinement** - Every two minutes the finished block is re-transcribed with your main model and replaced in the file, unless you have edited it
+- **Mic Mute as Pause** - Muting the microphone (in Windows or with a hardware key) pauses the session; the hotkey pauses and resumes it too
 - **Built-in Transcription Server** - Bundled whisper.cpp server, started and supervised by the app; no separate install
 - **Speech Model Manager** - Download SHA256-verified GGML models from Hugging Face, or paste your own model link
 - **GPU Acceleration** - Vulkan build works on NVIDIA, AMD and Intel GPUs, with automatic CPU fallback
@@ -60,7 +63,7 @@ Use OpenAI's cloud-hosted Whisper API - no local model download required.
 
 **Setup:**
 1. Get an API key from [OpenAI Platform](https://platform.openai.com/api-keys)
-2. Open Whisper Desktop Settings (gear icon)
+2. Open Dark-Whisper Settings (gear icon)
 3. Set **Transcription server** to **External API**, then configure:
    - **API Endpoint:** `https://api.openai.com/v1`
    - **API Token:** Your OpenAI API key (starts with `sk-`)
@@ -106,7 +109,7 @@ Run a separate Whisper API server, for example [whisper-api](https://github.com/
 
 ### For End Users
 
-1. Download the latest installer: `Whisper Desktop.exe`
+1. Download the latest installer: `Dark-Whisper-Setup-<version>.exe`
 2. Run the installer and follow the setup wizard
 3. The application will appear in your system tray after installation
 4. Open the window from the tray and click **Download recommended model** on the setup banner
@@ -157,6 +160,42 @@ For a GPU (Vulkan) server build, set `WHISPER_SERVER_DIR` to a folder containing
 
 If the built-in server is not ready, the hotkey does not record. Instead the app tells you why: no model installed (the Models screen opens), the model is still loading, or the server hit an error.
 
+### Recording a Session
+
+Quick dictation (above) pastes a short recording into another app. A **session** is for longer dictation: notes, drafts, meetings.
+
+1. Open the window and click **Start session**
+2. Speak. Text appears in the dark panel within a couple of seconds, and is appended to a new file in your vault: `<vault>\YYYY-MM-DD-HHmm-untitled.md`
+3. Press the hotkey (or **Pause**) to pause, and again to resume. Muting your microphone pauses the session as well; unmuting resumes it
+4. Click **Stop** when you are done
+
+The live text comes from a small, fast model (`liveModelId`, `base.en` by default), which must be installed in the Models screen. Every two minutes of audio forms a **block**. When a block closes, its audio is sent to the built-in server, which re-transcribes it with your main model and replaces the block in the file. "refining N block(s)…" shows the queue.
+
+- **Your edits win.** A block you changed is never overwritten. If the file is changed by another program (an editor, Obsidian, a sync tool) while a session is recording, appending carries on but refinement stops for that session.
+- **Memory.** With **Refine during recording** on *Auto*, refinement waits until you stop when the live and main models together exceed 2 GB. *Always* refines during the session; *After stopping* always waits.
+- **External API.** In External API mode, refinement is off unless you tick **Refine session blocks through this API**, because it would send your session audio to that server.
+- **Audio.** Session audio is recorded to `%APPDATA%\Dark-Whisper\sessions\<id>\` (about 115 MB per hour) and deleted once every block is refined, unless **Keep session audio** is on. Audio left behind by a crash is reported in the log at the next start and left on disk.
+- A document looks like this:
+
+```markdown
+---
+title: untitled
+created: 2026-09-16T10:06:12.958Z
+duration: 245
+liveModel: ggml-base.en.bin
+refineModel: ggml-large-v3-turbo-q5_0.bin
+...
+---
+
+<!-- dw:block 1 t=0-120 -->
+The refined text of the first two minutes.
+
+<!-- dw:block 2 t=120-240 -->
+...
+```
+
+The `<!-- dw:block … -->` markers are how blocks are found again; leave them in place if you edit the file. The session controls in the window are temporary and will be replaced by a full workspace.
+
 ### Managing Speech Models
 
 Click the 🧠 button in the window, or **Models…** in the tray menu:
@@ -166,11 +205,11 @@ Click the 🧠 button in the window, or **Models…** in the tray menu:
 - **Delete** removes a model from disk.
 - **Custom model** accepts any Hugging Face `.bin` link of the form `https://huggingface.co/<owner>/<repo>/resolve/<revision>/<file>.bin`, for example a distil-whisper GGML build.
 
-Downloads are verified against Hugging Face's SHA256 and checked for the GGML format before they are used. Models are stored in `%APPDATA%\whisper-desktop\models\`.
+Downloads are verified against Hugging Face's SHA256 and checked for the GGML format before they are used. Models are stored in `%APPDATA%\Dark-Whisper\models\`.
 
 ### Configuring Settings
 
-1. Click on the Whisper Desktop icon in the system tray
+1. Click on the Dark-Whisper icon in the system tray
 2. Click "Settings" (gear icon) in the application window
 3. Configure the following options:
    - **Transcription server** - **Built-in** (bundled whisper.cpp) or **External API**
@@ -180,6 +219,15 @@ Downloads are verified against Hugging Face's SHA256 and checked for the GGML fo
    - **Keyboard Shortcut** - Change the hotkey (e.g., `Alt+R`, `F9`, etc.)
    - **Microphone Device** - Choose which input device records
    - **Auto-mute system audio** - Silence other audio while recording
+   - **Session microphone** - The microphone sessions use (the list fills in once a session has started)
+   - **Vault folder** - Where session documents are written (default `Documents\Dark-Whisper`)
+   - **Live model** - The fast model for live text (default `ggml-base.en.bin`)
+   - **Language** - Transcription language for sessions (default `en`)
+   - **Minutes per block** - How often a block closes and is refined (default 2)
+   - **Refine during recording** - *Auto*, *Always* or *After stopping*
+   - **Timestamp headings** - Write `## 00:02:00` at the start of each block
+   - **Keep session audio** - Keep the WAV files after refinement
+   - **Refine session blocks through this API** - External API only
 
 4. Settings are saved when you click Save. Changing server mode or Force CPU restarts the server.
 
@@ -197,13 +245,13 @@ The main window shows what the transcription server is doing:
 
 ### System Tray Menu
 
-Right-click the Whisper Desktop icon in the system tray to:
+Right-click the Dark-Whisper icon in the system tray to:
 - **Show/Hide** - Toggle the application window
 - **Models…** - Open the speech model manager
 - **Recording Status** - View current recording status
 - **Exit** - Close the application
 
-The tray tooltip mirrors the status line.
+The tray tooltip mirrors the status line, or the session state while a session is running.
 
 ## How It Works
 
@@ -224,6 +272,26 @@ Transcribed text received
 Text automatically pasted to active window
         ↓
 Recording cleaned up
+```
+
+### Session Flow
+
+```
+Start session
+        ↓
+whisper-stream.exe (live model) listens to the microphone;
+  SoX records the same microphone to session-<n>.wav
+        ↓
+Each finished sentence → appended to the .md file
+        ↓
+Every 2 minutes of audio → block closed, its text hashed,
+  a refinement job queued
+        ↓
+Block audio sliced from the WAV → POSTed to whisper-server
+  → block replaced if its text still matches the hash
+        ↓
+Stop → final block queued, duration written;
+  audio deleted once the queue is empty
 ```
 
 ### Built-in Server Lifecycle
@@ -250,17 +318,19 @@ App quits → server is stopped
 - **Maximum Recording:** 5 minutes per recording
 - **Request Timeout:** 5 minutes with the built-in server, 30 seconds with an external API
 - **Server Binding:** `127.0.0.1` only, on a port chosen at startup
-- **Storage Location:** `%APPDATA%\whisper-desktop\recordings\`
-- **Model Location:** `%APPDATA%\whisper-desktop\models\`
-- **Server Log:** `%APPDATA%\whisper-desktop\logs\whisper-server.log` (last 500 lines, per run)
+- **Storage Location:** `%APPDATA%\Dark-Whisper\recordings\`
+- **Model Location:** `%APPDATA%\Dark-Whisper\models\`
+- **Server Log:** `%APPDATA%\Dark-Whisper\logs\whisper-server.log` (last 500 lines, per run)
+- **Session Audio:** `%APPDATA%\Dark-Whisper\sessions\<id>\` (32 kB/s while recording)
+- **Live Engine Log:** `%APPDATA%\Dark-Whisper\logs\stream.log`
 - **Settings Storage:** Local JSON in AppData (electron-store)
 
 ## Configuration
 
-Settings are stored in `%APPDATA%\whisper-desktop\` directory. You can also manually edit the configuration by accessing:
+Settings are stored in the `%APPDATA%\Dark-Whisper\` directory. You can also manually edit the configuration by accessing:
 
 ```
-C:\Users\[YourUsername]\AppData\Roaming\whisper-desktop\
+C:\Users\[YourUsername]\AppData\Roaming\Dark-Whisper\
 ```
 
 | Setting | Values | Notes |
@@ -270,6 +340,16 @@ C:\Users\[YourUsername]\AppData\Roaming\whisper-desktop\
 | `forceCpu` | `true` / `false` | Skip the GPU build |
 | `gpuFallbackVersion` | version string or `null` | Set when a GPU start failed, so CPU is used next time |
 | `shortcut`, `micDevice`, `autoMuteAudio`, `apiUrl`, `apiToken` | | As shown in Settings |
+| `vaultPath` | folder | Where session documents go |
+| `liveModelId` | model file name | Fast model for live text; default `ggml-base.en.bin` |
+| `language` | language code | Default `en` |
+| `refineDuringRecording` | `auto` / `always` / `afterStop` | Default `auto` |
+| `refineWithExternalApi` | `true` / `false` | Default `false` |
+| `blockMinutes` | 1-30 | Default `2` |
+| `keepSessionAudio`, `timestampHeadings` | `true` / `false` | Default `false` |
+| `captureDeviceName` | device name | Empty means the system default |
+
+**Upgrading from Whisper Desktop:** at first start, Dark-Whisper moves `config.json`, `models`, `logs` and `recordings` from `%APPDATA%\whisper-desktop\` (or `%APPDATA%\Whisper Desktop\`) into `%APPDATA%\Dark-Whisper\`, so settings and downloaded models carry over.
 
 ### Transcription API Endpoints
 
@@ -315,7 +395,7 @@ curl -X POST http://127.0.0.1:4444/v1/audio/transcriptions \
 
 - **Problem:** Status line is red (`Server error: …`)
 - **Solution:**
-  - Click **Open log** to see the server's own output (`%APPDATA%\whisper-desktop\logs\whisper-server.log`)
+  - Click **Open log** to see the server's own output (`%APPDATA%\Dark-Whisper\logs\whisper-server.log`)
   - `Model failed to load` usually means a damaged model file: delete it in the Models screen and download it again
   - Tick **Force CPU** in Settings if the GPU build crashes or your driver is unstable
   - Click **Restart** in the main window after changing anything
@@ -352,6 +432,14 @@ curl -X POST http://127.0.0.1:4444/v1/audio/transcriptions \
   - Ensure no firewall is blocking port 4444
   - Check application logs (see Development below)
 
+### Session Problems
+
+- **"Live model … is not installed"** - download `base.en` (or whichever `liveModelId` you set) in the Models screen
+- **No text appears** - check the session microphone in Settings; a microphone that is no longer present falls back to the default and says so in the session line. `%APPDATA%\Dark-Whisper\logs\stream.log` has the engine's output
+- **"recording interrupted and resumed" in the file** - the live engine crashed and was restarted; the audio recording continued
+- **"File edited outside the app — refinement paused"** - another program changed the document during the session; stop the session, and the blocks keep their live text
+- **Blocks are never refined** - the built-in server must be `Ready`; in External API mode refinement is off unless enabled in Settings
+
 ### Text Not Pasting
 
 - **Problem:** Transcribed text doesn't appear in active window
@@ -367,7 +455,7 @@ curl -X POST http://127.0.0.1:4444/v1/audio/transcriptions \
 - **Problem:** Windows says app doesn't have microphone access
 - **Solution:**
   - Go to Settings → Privacy & Security → Microphone
-  - Ensure Whisper Desktop is enabled
+  - Ensure Dark-Whisper is enabled
   - You may need to add the installed application path to the microphone access list
 
 ## Development
@@ -385,7 +473,8 @@ curl -X POST http://127.0.0.1:4444/v1/audio/transcriptions \
 | `npm test` | Run Jest unit tests |
 | `npm test:watch` | Run tests in watch mode |
 | `npm test:coverage` | Generate code coverage report |
-| `npm run whisper:fetch` | Download the pinned whisper.cpp CPU server into `resources/whisper/cpu` |
+| `npm run whisper:fetch` | Download the pinned whisper.cpp CPU server and `whisper-stream` into `resources/whisper/cpu` |
+| `npm run stream:probe -- <model> [capture id]` | Run the live engine alone and print what it hears |
 | `npm run build:windows` | Build Windows NSIS installer |
 
 ### Project Structure
@@ -393,6 +482,7 @@ curl -X POST http://127.0.0.1:4444/v1/audio/transcriptions \
 ```
 Dark-Whisper/
 ├── src/
+│   ├── appIdentity.ts             # App name and user-data migration (imported first)
 │   ├── main.ts                    # Electron main process, lifecycle, tray, IPC
 │   ├── preload.ts                 # Secure IPC bridge
 │   ├── services/
@@ -409,14 +499,27 @@ Dark-Whisper/
 │   │   ├── serverOutput.ts        # Server log parsing, restart backoff
 │   │   ├── serverPaths.ts         # Server binary resolution
 │   │   ├── serverGate.ts          # Recording gate and status text
-│   │   └── whisperRuntime.ts      # Electron/Node wiring for the above
-│   └── __tests__/                 # Unit tests (123 tests, 11 suites)
+│   │   ├── whisperRuntime.ts      # Electron/Node wiring for the above
+│   │   ├── userDataMigration.ts   # Which legacy user-data entries to move
+│   │   ├── streamOutput.ts        # whisper-stream output parsing
+│   │   ├── streamEngine.ts        # Live engine supervisor
+│   │   ├── streamRuntime.ts       # Live engine and SoX session-audio wiring
+│   │   ├── sessionPaths.ts        # Session ids and audio file names
+│   │   ├── documentStore.ts       # Vault Markdown files: append, blocks, hash guard, search
+│   │   ├── blockMath.ts           # Block time ranges → WAV byte ranges
+│   │   ├── sessionService.ts      # One session: segments → document, blocks, jobs
+│   │   ├── blockRefiner.ts        # Refinement queue and memory guard
+│   │   ├── micMuteOutput.ts       # Core Audio mute shim and its output
+│   │   ├── micMuteService.ts      # Microphone mute polling
+│   │   └── sessionRuntime.ts      # Electron/Node wiring for sessions
+│   └── __tests__/                 # Unit tests (245 tests, 20 suites)
 ├── public/
 │   └── index.html                 # UI (status, settings, models)
 ├── assets/
 │   └── whisper.ico                # Application icon
 ├── scripts/
-│   └── fetch-whisper.js           # Dev: download pinned whisper.cpp CPU server
+│   ├── fetch-whisper.js           # Dev: download pinned whisper.cpp CPU binaries
+│   └── stream-probe.js            # Dev: run the live engine alone
 ├── resources/whisper/             # Server binaries (generated, gitignored)
 ├── docs/superpowers/              # Design spec and implementation plan
 ├── dist/                          # Compiled JavaScript (generated)
@@ -427,7 +530,7 @@ Dark-Whisper/
 └── README.md                      # This file
 ```
 
-The `services` layer is deliberately split: everything except `whisperRuntime.ts` is free of Electron imports, so it can be unit-tested directly.
+The `services` layer is deliberately split: the `*Runtime.ts` modules (and the settings, recording, paste and hotkey services) touch Electron; everything else is free of Electron imports, so it can be unit-tested directly.
 
 ### Technology Stack
 
@@ -447,12 +550,12 @@ The `services` layer is deliberately split: everything except `whisperRuntime.ts
 `.github/workflows/publish.yml` runs on a `v*.*.*` tag:
 
 1. **Lint** and **Test** on Ubuntu.
-2. **Build whisper.cpp server** on Windows: installs the pinned Vulkan SDK, compiles `whisper-server` twice (CPU and Vulkan) from the tag in `whisper.version`, transcribes a sample clip as a smoke test, and uploads the binaries as an artifact. Results are cached per whisper.cpp and SDK version.
+2. **Build whisper.cpp server** on Windows: installs the pinned Vulkan SDK and SDL2, compiles `whisper-server` and `whisper-stream` twice (CPU and Vulkan) from the tag in `whisper.version`, transcribes a sample clip as a smoke test, and uploads the binaries as an artifact. Results are cached per whisper.cpp, SDK and SDL2 version.
 3. **Build and Release**: downloads that artifact into `resources/whisper/`, builds the NSIS installer, and publishes a GitHub Release.
 
 To cut a release: `git tag v1.2.0 && git push origin v1.2.0`.
 
-When bumping `whisper.version`, re-check the server's stderr strings in `serverOutput.ts` (`classifyServerLine`) — the supervisor recognises model-load and GPU messages by text.
+When bumping `whisper.version`, re-check the server's stderr strings in `serverOutput.ts` (`classifyServerLine`) and whisper-stream's output in `streamOutput.ts` — both supervisors recognise messages by text.
 
 ### Security
 
@@ -477,7 +580,7 @@ To create a Windows installer:
 npm run build:windows
 ```
 
-The installer will be created in the `dist/` directory as `Whisper Desktop.exe`.
+The installer will be created in the `release/` directory as `Dark-Whisper-Setup-<version>.exe`.
 
 **Note:** Building requires Windows and administrative privileges for the NSIS installer creation.
 
@@ -500,6 +603,8 @@ To view debug output and logs:
 
 - **Windows Only:** Currently supports Windows 10 and later (x64) only
 - **One Server at a Time:** Either the built-in server or a single external endpoint
+- **One Session at a Time:** Quick dictation is refused while a session records, and the other way round
+- **Mute Pause Uses the Default Microphone:** pausing mutes the Windows default capture device, even if a session uses another microphone
 - **Manual Text Injection:** Uses system clipboard and Ctrl+V for pasting (some applications may not support this)
 - **Audio Quality:** Dependent on microphone and system audio capture
 - **Internet Required:** For model downloads, and when using OpenAI's hosted service
@@ -509,14 +614,15 @@ To view debug output and logs:
 
 Potential features for future releases:
 
-- [ ] Multi-language support in UI (transcription language is currently fixed to English)
+- [ ] A full session workspace (document list, search, editor) replacing the temporary session controls
+- [ ] Multi-language support in UI (quick dictation's language is currently fixed to English)
 - [ ] Dark mode theme
 - [ ] Recording history and replay
 - [ ] Custom hotkey profiles
 - [ ] Batch transcription
 - [ ] macOS and Linux support
 - [ ] Voice activity detection / silence auto-stop
-- [ ] Model choice per language, and language selection in Settings
+- [ ] Model choice per language
 - [ ] Auto-update (electron-updater)
 
 ## Contributing
@@ -555,7 +661,7 @@ For issues, feature requests, or questions:
 1. **GitHub Issues:** https://github.com/TheGeek01/Dark-Whisper/issues
 2. **Email:** ghostline@blackhaven-dynamics.net
 
-When reporting a transcription problem, please include the status line text and, if the server errored, the contents of `%APPDATA%\whisper-desktop\logs\whisper-server.log`.
+When reporting a transcription problem, please include the status line text and, if the server errored, the contents of `%APPDATA%\Dark-Whisper\logs\whisper-server.log` (and `stream.log` for session problems).
 
 ## Acknowledgments
 
@@ -570,7 +676,15 @@ When reporting a transcription problem, please include the status line text and,
 
 ## Changelog
 
-### Version 1.1.0 (Latest)
+### Unreleased
+
+- Renamed to Dark-Whisper; user data moves to `%APPDATA%\Dark-Whisper` on first start
+- Live sessions: whisper-stream writes a Markdown document in a vault folder as you speak
+- Completed blocks are re-transcribed with the main model, and never overwrite your edits
+- Microphone mute pauses a session; the hotkey pauses and resumes it
+- New settings for the vault, live model, language, block length, refinement, headings and session audio
+
+### Version 1.1.0
 
 - Built-in whisper.cpp transcription server, bundled and supervised by the app
 - Speech model manager: SHA256-verified downloads from Hugging Face, plus custom model links
