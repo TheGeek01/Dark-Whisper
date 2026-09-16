@@ -694,7 +694,13 @@ When reporting a transcription problem, please include the status line text and,
 
 ## Changelog
 
-### Version 1.2.0 (Latest)
+### Version 1.2.1 (Latest)
+
+- Editing the document in another editor during a session no longer stops refinement: only the blocks you edited are skipped
+- A file a sync client briefly locks is no longer mistaken for an outside edit
+- Session audio is deleted after the recorder releases it (it could be left behind on Windows)
+
+### Version 1.2.0
 
 - Three-pane workspace: vault library with folders and search, live document view, session panel with per-block refinement state; quick dictation moves to the header
 - Documents are sanitised and a strict Content-Security-Policy blocks scripts and remote or network (UNC) images
