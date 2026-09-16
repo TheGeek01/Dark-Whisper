@@ -15,10 +15,6 @@ import { getState, subscribe, update, type AppState } from './state.js';
 import { reportError, toast } from './toast.js';
 
 const FOLLOW_THRESHOLD_PX = 40;
-// Matches .flash's 1.6s CSS animation (public/app.css) so the highlight plays before the
-// section is rebuilt; renderDocument() replaces every child on each render, so clearing the
-// pending scroll too soon (originally 0ms) destroyed the flashed node before it could be seen.
-const FLASH_HOLD_MS = 1700;
 
 let readSeq = 0;
 let shownFile: string | null = null;
@@ -166,8 +162,8 @@ function applyPendingScroll(parts: DocumentPart[]): void {
   } else {
     flash(body.querySelector(`[data-block="${scrollToBlock}"]`));
   }
-  // Clear once the flash has had time to play, so the scroll happens once.
-  setTimeout(() => update({ scrollToLine: null, scrollToBlock: null }), FLASH_HOLD_MS);
+  // Clear after this render so the scroll happens once.
+  setTimeout(() => update({ scrollToLine: null, scrollToBlock: null }), 0);
 }
 
 function onStateChange(state: AppState, changed: ReadonlySet<keyof AppState>): void {
@@ -193,8 +189,8 @@ function onStateChange(state: AppState, changed: ReadonlySet<keyof AppState>): v
     changed.has('session') ||
     changed.has('tree') ||
     changed.has('selectedFile') ||
-    changed.has('scrollToLine') ||
-    changed.has('scrollToBlock')
+    (changed.has('scrollToLine') && state.scrollToLine !== null) ||
+    (changed.has('scrollToBlock') && state.scrollToBlock !== null)
   ) {
     renderDocument();
   }
