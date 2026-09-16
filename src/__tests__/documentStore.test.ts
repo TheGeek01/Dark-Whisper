@@ -234,3 +234,12 @@ describe('DocumentStore', () => {
     expect(store.fileHash(file)).not.toBe(afterOurs);
   });
 });
+
+describe('DocumentStore.createDocument folders', () => {
+  it('creates a document inside a vault folder', () => {
+    const vault = fs.mkdtempSync(path.join(os.tmpdir(), 'dw-store-folder-'));
+    const file = new DocumentStore(vault).createDocument('2026-09-16-0706', FM, 'Clients/Acme');
+    expect(file).toBe(path.join(vault, 'Clients', 'Acme', '2026-09-16-0706-untitled.md'));
+    expect(fs.readFileSync(file, 'utf8')).toContain('title: untitled');
+  });
+});

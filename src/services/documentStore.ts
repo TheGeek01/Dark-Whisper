@@ -97,9 +97,10 @@ export class DocumentStore {
     }
   }
 
-  createDocument(id: string, fm: Frontmatter): string {
-    fs.mkdirSync(this.vaultPath, { recursive: true });
-    const file = path.join(this.vaultPath, `${id}-${slugify(fm.title)}.md`);
+  createDocument(id: string, fm: Frontmatter, folder = ''): string {
+    const dir = path.join(this.vaultPath, folder);
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${id}-${slugify(fm.title)}.md`);
     this.write(file, `${formatFrontmatter(fm)}\n`);
     return file;
   }

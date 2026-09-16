@@ -1,4 +1,4 @@
-import { SessionService, SessionStoreLike, RefineJob } from '../services/sessionService';
+import { SessionBlockEvent, SessionService, SessionStoreLike, RefineJob } from '../services/sessionService';
 import { hashText } from '../services/documentStore';
 
 function fakeStore() {
@@ -153,5 +153,47 @@ describe('SessionService', () => {
     ctx.service.setPaused(false);
     ctx.service.end();
     expect(states).toEqual(['paused', 'recording', 'stopped']);
+  });
+
+  it('reports block lifecycle events, queued before the job is enqueued', () => {
+    const fake = fakeStore();
+    const events: SessionBlockEvent[] = [];
+    const order: string[] = [];
+    const service = new SessionService({
+      store: fake.store,
+      enqueueRefine: (job) => order.push(`job ${job.blockIndex}`),
+      blockMinutes: 2,
+      timestampHeadings: false,
+    });
+    service.onBlock((event) => {
+      events.push(event);
+      order.push(`${event.state} ${event.blockIndex}`);
+    });
+    service.begin({ id: 's1', documentPath: 'C:/vault/s1.md' });
+    service.segment({ text: 'hello', atMs: 1_000 });
+    service.segment({ text: 'later', atMs: 250_000 });
+    service.end();
+
+    expect(order).toEqual(['live 1', 'queued 1', 'job 1', 'live 2', 'empty 2', 'live 3', 'queued 3', 'job 3']);
+    expect(events[0]).toEqual({ blockIndex: 1, startSec: 0, endSec: 120, state: 'live' });
+    expect(events[1]).toEqual({ blockIndex: 1, startSec: 0, endSec: 120, state: 'queued' });
+    expect(events[3]).toEqual({ blockIndex: 2, startSec: 120, endSec: 240, state: 'empty' });
+    expect(events[5]).toEqual({ blockIndex: 3, startSec: 240, endSec: 250, state: 'queued' });
+  });
+
+  it('follows its document to a new path', () => {
+    const ctx = setup();
+    const paths: string[] = [];
+    ctx.service.onInfo((info) => paths.push(info.documentPath));
+    ctx.service.segment({ text: 'rough', atMs: 1_000 });
+    ctx.service.end();
+    const replace = jest.spyOn(ctx.store, 'replaceBlock');
+
+    ctx.service.setDocumentPath('C:/vault/Work/s1.md');
+
+    expect(ctx.service.getInfo().documentPath).toBe('C:/vault/Work/s1.md');
+    expect(paths[paths.length - 1]).toBe('C:/vault/Work/s1.md');
+    expect(ctx.service.applyRefinement(1, 'Better')).toBe('replaced');
+    expect(replace).toHaveBeenCalledWith('C:/vault/Work/s1.md', 1, 'Better', expect.any(String));
   });
 });

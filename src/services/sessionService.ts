@@ -10,6 +10,15 @@ export interface RefineJob {
   hash: string;
 }
 
+export type SessionBlockState = 'live' | 'empty' | 'queued';
+
+export interface SessionBlockEvent {
+  blockIndex: number;
+  startSec: number;
+  endSec: number;
+  state: SessionBlockState;
+}
+
 export interface SessionInfo {
   id: string;
   documentPath: string;
@@ -37,6 +46,7 @@ export interface SessionDeps {
 export class SessionService {
   private info: SessionInfo = { id: '', documentPath: '', state: 'stopped', blockIndex: 0, durationSec: 0 };
   private readonly listeners = new Set<(info: SessionInfo) => void>();
+  private readonly blockListeners = new Set<(event: SessionBlockEvent) => void>();
   private readonly hashes = new Map<number, string>();
   private launches = 0;
 
@@ -51,6 +61,23 @@ export class SessionService {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  onBlock(listener: (event: SessionBlockEvent) => void): () => void {
+    this.blockListeners.add(listener);
+    return () => {
+      this.blockListeners.delete(listener);
+    };
+  }
+
+  private emitBlock(event: SessionBlockEvent): void {
+    for (const l of this.blockListeners) l(event);
+  }
+
+  // The runtime renames or moves a finished session's document while its blocks may still refine.
+  setDocumentPath(documentPath: string): void {
+    this.info = { ...this.info, documentPath };
+    this.emit();
   }
 
   private emit(): void {
@@ -70,15 +97,21 @@ export class SessionService {
     const block: BlockRef = { index, startSec: range.startSec, endSec: range.endSec };
     const heading = this.deps.timestampHeadings ? formatTimestampHeading(range.startSec) : undefined;
     this.deps.store.openBlock(this.info.documentPath, block, heading);
+    this.emitBlock({ blockIndex: index, startSec: range.startSec, endSec: range.endSec, state: 'live' });
   }
 
   // A block with no speech in it has nothing to refine, so it is closed without a job.
+  // 'queued' is reported before the job is enqueued: the queue may start it synchronously.
   private closeBlock(index: number, endSec: number): void {
+    const range = blockRange(index, this.deps.blockMinutes);
     const text = this.deps.store.readBlockText(this.info.documentPath, index) ?? '';
-    if (text.trim().length === 0) return;
+    if (text.trim().length === 0) {
+      this.emitBlock({ blockIndex: index, startSec: range.startSec, endSec, state: 'empty' });
+      return;
+    }
     const hash = hashText(text);
     this.hashes.set(index, hash);
-    const range = blockRange(index, this.deps.blockMinutes);
+    this.emitBlock({ blockIndex: index, startSec: range.startSec, endSec, state: 'queued' });
     this.deps.enqueueRefine({ blockIndex: index, startSec: range.startSec, endSec, hash });
   }
 
