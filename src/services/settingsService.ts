@@ -26,7 +26,8 @@ export interface Settings {
   captureDeviceName: string;
 }
 
-const defaultVaultPath = path.join(app.getPath('documents'), 'Dark-Whisper');
+export const DEFAULT_VAULT_PATH = path.join(app.getPath('documents'), 'Dark-Whisper');
+const defaultVaultPath = DEFAULT_VAULT_PATH;
 
 // Must be checked before the store is created, because creating it writes the defaults to disk.
 const configFileExisted = fs.existsSync(path.join(app.getPath('userData'), 'config.json'));

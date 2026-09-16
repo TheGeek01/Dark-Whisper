@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import registerShortcuts from './services/hotkeyService';
 import { recordAudio, stopRecording, cleanupOldRecordings, getAudioDevices } from './services/recordingService';
 import { transcribeAudio, checkAPIHealth, setApiConfig, BUILTIN_TIMEOUT_MS, EXTERNAL_TIMEOUT_MS } from './services/apiService';
-import { getSettings, saveSettings } from './services/settingsService';
+import { DEFAULT_VAULT_PATH, getSettings, saveSettings } from './services/settingsService';
 import { pasteTranscriptClipboard, copyToClipboard } from './services/pasteService';
 import { saveAndMuteAudio, restoreAudio } from './services/audioControlService';
 import { cleanupStaleServer, modelManager, openServerLog, startBuiltinServer, whisperServer } from './services/whisperRuntime';
@@ -79,7 +79,6 @@ const createWindow = () => {
     return { action: 'deny' };
   });
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (url === mainWindow?.webContents.getURL()) return;
     event.preventDefault();
     openExternalLink(url);
   });
@@ -239,8 +238,9 @@ app.on('ready', () => {
   const settings = getSettings();
   currentShortcut = settings.shortcut;
 
-  // Enable auto-start on Windows startup (minimized to tray)
-  if (process.platform === 'win32') {
+  // Enable auto-start on Windows startup (minimized to tray). Dev and smoke launches are never
+  // packaged, so this never registers a login item outside a real install.
+  if (process.platform === 'win32' && app.isPackaged) {
     app.setLoginItemSettings({
       openAtLogin: true,
       path: app.getPath('exe'),
@@ -259,6 +259,11 @@ app.on('ready', () => {
   });
   onSessionSegment((segment) => mainWindow?.webContents.send('session-segment', segment));
   onSessionBlock((event) => mainWindow?.webContents.send('session-block', event));
+  // A fresh install has no vault yet; only ever auto-create the default one, never a custom
+  // path the user chose (a missing custom vault keeps showing "Vault not found").
+  if (settings.vaultPath === DEFAULT_VAULT_PATH) {
+    fs.mkdirSync(DEFAULT_VAULT_PATH, { recursive: true });
+  }
   watchVault();
   onLibraryChanged((change) => mainWindow?.webContents.send('library-changed', change));
   modelManager.onProgress((progress) => mainWindow?.webContents.send('download-progress', progress));
