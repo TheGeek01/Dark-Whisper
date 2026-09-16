@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { AudioEntry, BYTES_PER_SECOND, WAV_HEADER_BYTES, slicesForRange, wavHeader } from './blockMath';
-import { RefineQueue, shouldRefineDuringRecording } from './blockRefiner';
+import { RefineEvent, RefineQueue, shouldRefineDuringRecording } from './blockRefiner';
 import { BlockRef, DocumentStore, Frontmatter, ReplaceOutcome } from './documentStore';
 import { MicMuteService } from './micMuteService';
 import { buildShimArgs, parseMuteOutput } from './micMuteOutput';
@@ -15,16 +15,19 @@ import { getSettings } from './settingsService';
 import { startLiveEngine, stopLiveEngine, streamEngine, sessionsRoot, sessionAudioManifest } from './streamRuntime';
 import { transcribeAudio } from './apiService';
 import { modelManager, whisperServer } from './whisperRuntime';
+import type { BlockEvent, BlockState, SessionStatusView } from '../shared/api';
+import { LibraryService, toRelative } from './libraryService';
 
-export interface SessionStatusView {
-  state: 'idle' | 'starting' | 'recording' | 'paused' | 'stopped' | 'error';
-  documentPath: string | null;
-  blockIndex: number;
-  durationSec: number;
-  refining: number;
-  message?: string;
-  muted: boolean | null;
-}
+export type { SessionStatusView };
+
+const MAX_MESSAGES = 50;
+
+const REFINE_STATE: Record<RefineEvent['kind'], BlockState> = {
+  started: 'refining',
+  replaced: 'refined',
+  skipped: 'skipped',
+  failed: 'failed',
+};
 
 const EXTERNAL_EDIT_MESSAGE = 'File edited outside the app — refinement paused for this session';
 
@@ -96,6 +99,8 @@ class GuardedStore implements SessionStoreLike {
 // one starts, so its callbacks must never reach for "the current session".
 interface SessionContext {
   id: string;
+  vaultPath: string;
+  folder: string;
   documentPath: string;
   service: SessionService;
   queue: RefineQueue;
@@ -103,10 +108,18 @@ interface SessionContext {
   stopped: boolean;
   audioRemoved: boolean;
   pausedByApp: boolean;
+  microphone: string;
+  liveModel: string;
+  refineModel: string;
+  messages: string[];
+  blocks: Map<number, BlockEvent>;
 }
 
 const listeners = new Set<(v: SessionStatusView) => void>();
 const segmentListeners = new Set<(s: { text: string; blockIndex: number }) => void>();
+const blockListeners = new Set<(event: BlockEvent) => void>();
+// App-wide notices (e.g. the vault watcher falling back to polling), newest first.
+const notices: string[] = [];
 const finishing = new Set<SessionContext>();
 
 let current: SessionContext | null = null;
@@ -152,6 +165,64 @@ export function onSessionSegment(listener: (s: { text: string; blockIndex: numbe
   return () => segmentListeners.delete(listener);
 }
 
+export function onSessionBlock(listener: (event: BlockEvent) => void): () => void {
+  blockListeners.add(listener);
+  return () => blockListeners.delete(listener);
+}
+
+function addMessage(ctx: SessionContext, text: string): void {
+  statusMessage = text;
+  ctx.messages.unshift(text);
+  ctx.messages.splice(MAX_MESSAGES);
+}
+
+export function addSessionNotice(text: string): void {
+  if (notices[0] === text) return;
+  notices.unshift(text);
+  notices.splice(MAX_MESSAGES);
+  emit();
+}
+
+function recordBlock(
+  ctx: SessionContext,
+  blockIndex: number,
+  state: BlockState,
+  message?: string,
+  range?: { startSec: number; endSec: number },
+): void {
+  const previous = ctx.blocks.get(blockIndex);
+  const event: BlockEvent = {
+    sessionId: ctx.id,
+    blockIndex,
+    startSec: range?.startSec ?? previous?.startSec ?? 0,
+    endSec: range?.endSec ?? previous?.endSec ?? 0,
+    state,
+    ...(message ? { message } : {}),
+  };
+  ctx.blocks.set(blockIndex, event);
+  for (const l of blockListeners) l(event);
+}
+
+function samePath(a: string, b: string): boolean {
+  return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+}
+
+export function isRecordingDocument(absolute: string): boolean {
+  return isSessionActive() && current !== null && samePath(current.documentPath, absolute);
+}
+
+// The library renamed or moved a document; a finished session may still be refining it.
+export function documentMoved(from: string, to: string): void {
+  for (const ctx of liveContexts()) {
+    if (!samePath(ctx.documentPath, from)) continue;
+    ctx.documentPath = to;
+    ctx.service.setDocumentPath(to);
+    // A rename rewrites the title in the frontmatter; that is our own write, not an outside edit.
+    ctx.store.noteWrite(to);
+  }
+  emit();
+}
+
 // The engine only lists devices once it has launched, so the last list seen is kept for the
 // picker and for resolving the saved device name at the next session start (spec §4.4).
 export function captureDevices(): CaptureDevice[] {
@@ -164,23 +235,32 @@ export function isSessionActive(): boolean {
 
 export function sessionStatus(): SessionStatusView {
   const engine = streamEngine.getStatus();
-  const info = current?.service.getInfo();
+  const ctx = current;
+  const info = ctx?.service.getInfo();
   let state: SessionStatusView['state'] = 'idle';
   if (isSessionActive() && engine.state === 'error') state = 'error';
   else if (isSessionActive() && engine.state === 'starting') state = 'starting';
   else if (info) state = info.state;
 
   let refining = 0;
-  for (const ctx of liveContexts()) refining += ctx.queue.pending();
+  for (const c of liveContexts()) refining += c.queue.pending();
 
   return {
+    sessionId: ctx?.id ?? null,
     state,
-    documentPath: current?.documentPath ?? null,
+    documentPath: ctx?.documentPath ?? null,
+    documentFile: ctx ? toRelative(ctx.vaultPath, ctx.documentPath) : null,
+    folder: ctx?.folder ?? '',
     blockIndex: info?.blockIndex ?? 0,
     durationSec: info?.durationSec ?? 0,
     refining,
     message: (isSessionActive() ? engine.message : undefined) ?? statusMessage,
     muted: micMute.isMuted(),
+    microphone: ctx?.microphone ?? '',
+    liveModel: ctx?.liveModel ?? '',
+    refineModel: ctx?.refineModel ?? '',
+    messages: [...(ctx?.messages ?? []), ...notices],
+    blocks: ctx ? [...ctx.blocks.values()].sort((a, b) => a.blockIndex - b.blockIndex) : [],
   };
 }
 
@@ -275,12 +355,24 @@ function refinementBlockedForGood(ctx: SessionContext): boolean {
   return ctx.store.edited || (settings.serverMode === 'external' && !settings.refineWithExternalApi);
 }
 
-function uniqueDocumentId(vaultPath: string, base: string): string {
+function uniqueDocumentId(dir: string, base: string): string {
   let id = base;
-  for (let n = 2; fs.existsSync(path.join(vaultPath, `${id}-untitled.md`)); n++) {
+  for (let n = 2; fs.existsSync(path.join(dir, `${id}-untitled.md`)); n++) {
     id = `${base}-${n}`;
   }
   return id;
+}
+
+// A missing or invalid target folder falls back to the vault root, with a message.
+function resolveTargetFolder(library: LibraryService, folder: string): { folder: string; message?: string } {
+  if (!folder) return { folder: '' };
+  try {
+    const dir = library.resolve(folder, 'folder');
+    if (fs.statSync(dir).isDirectory()) return { folder: library.relative(dir) };
+  } catch {
+    // Reported below.
+  }
+  return { folder: '', message: `Folder "${folder}" not found — the session was saved in the vault root` };
 }
 
 async function applyPause(paused: boolean, source: 'app' | 'mic'): Promise<void> {
@@ -298,12 +390,14 @@ async function applyPause(paused: boolean, source: 'app' | 'mic'): Promise<void>
   emit();
 }
 
-export async function startSession(): Promise<SessionStatusView> {
+export async function startSession(folder = ''): Promise<SessionStatusView> {
   if (isSessionActive()) throw new Error('A session is already recording');
   if (current && !current.audioRemoved) finishing.add(current);
 
   const settings = getSettings();
   const documents = new DocumentStore(settings.vaultPath);
+  const library = new LibraryService(settings.vaultPath);
+  const target = resolveTargetFolder(library, folder);
   const id = newSessionId(new Date());
   statusMessage = undefined;
 
@@ -319,11 +413,12 @@ export async function startSession(): Promise<SessionStatusView> {
     app: `dark-whisper ${app.getVersion()}`,
   };
   const base = id.replace(/^(\d{4})(\d{2})(\d{2})-(\d{4})\d{2}$/, '$1-$2-$3-$4');
-  const documentPath = documents.createDocument(uniqueDocumentId(settings.vaultPath, base), frontmatter);
+  const targetDir = path.join(settings.vaultPath, target.folder);
+  const documentPath = documents.createDocument(uniqueDocumentId(targetDir, base), frontmatter, target.folder);
 
   let ctx: SessionContext | null = null;
   const store = new GuardedStore(documents, () => {
-    statusMessage = EXTERNAL_EDIT_MESSAGE;
+    if (ctx) addMessage(ctx, EXTERNAL_EDIT_MESSAGE);
     ctx?.queue.setAllowed(false);
     emit();
   });
@@ -342,25 +437,48 @@ export async function startSession(): Promise<SessionStatusView> {
     cleanup: (wav) => fs.rmSync(wav, { force: true }),
     apply: (blockIndex, text) => service.applyRefinement(blockIndex, text),
     report: (event) => {
-      if (event.kind === 'failed') {
-        statusMessage = `Refinement failed for block ${event.blockIndex}`;
+      if (ctx) {
+        recordBlock(ctx, event.blockIndex, REFINE_STATE[event.kind], event.message);
+        if (event.kind === 'failed') {
+          addMessage(ctx, `Refinement failed for block ${event.blockIndex}${event.message ? `: ${event.message}` : ''}`);
+        }
       }
       emit();
     },
   });
 
-  ctx = { id, documentPath, service, queue, store, stopped: false, audioRemoved: false, pausedByApp: false };
-  current = ctx;
-  queue.setAllowed(refinementAllowed(ctx));
-  service.begin({ id, documentPath });
-  service.onInfo(() => emit());
-
   const device = settings.captureDeviceName
     ? lastDevices.find((d) => d.name === settings.captureDeviceName)
     : undefined;
+
+  ctx = {
+    id,
+    vaultPath: settings.vaultPath,
+    folder: target.folder,
+    documentPath,
+    service,
+    queue,
+    store,
+    stopped: false,
+    audioRemoved: false,
+    pausedByApp: false,
+    microphone: device?.name ?? 'System default',
+    liveModel: settings.liveModelId,
+    refineModel: settings.serverMode === 'external' ? 'External API' : settings.modelId ?? 'none',
+    messages: [],
+    blocks: new Map(),
+  };
+  current = ctx;
+  if (target.message) addMessage(ctx, target.message);
   if (settings.captureDeviceName && !device) {
-    statusMessage = `Microphone "${settings.captureDeviceName}" not found — using the default device`;
+    addMessage(ctx, `Microphone "${settings.captureDeviceName}" not found — using the default device`);
   }
+
+  const owner = ctx;
+  service.onBlock((event) => recordBlock(owner, event.blockIndex, event.state, undefined, event));
+  queue.setAllowed(refinementAllowed(ctx));
+  service.begin({ id, documentPath });
+  service.onInfo(() => emit());
 
   // The first poll reports the current mute state, so a session started muted begins paused.
   micMute.start();

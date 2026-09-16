@@ -14,6 +14,7 @@ import type { DownloadProgress } from './services/modelManager';
 import {
   captureDevices,
   isSessionActive,
+  onSessionBlock,
   onSessionSegment,
   onSessionStatus,
   openVault,
@@ -237,6 +238,7 @@ app.on('ready', () => {
     updateTrayTooltip();
   });
   onSessionSegment((segment) => mainWindow?.webContents.send('session-segment', segment));
+  onSessionBlock((event) => mainWindow?.webContents.send('session-block', event));
   modelManager.onProgress((progress) => mainWindow?.webContents.send('download-progress', progress));
   handleServerStatus();
 
@@ -518,11 +520,11 @@ ipcMain.handle('select-model', async (_event, id: string) => {
   await startBuiltinServer();
 });
 
-ipcMain.handle('session-start', async () => {
+ipcMain.handle('session-start', async (_event, folder?: unknown) => {
   if (isRecording) {
     throw new Error('Quick dictation is recording. Stop it before starting a session.');
   }
-  return startSession();
+  return startSession(typeof folder === 'string' ? folder : '');
 });
 
 ipcMain.handle('session-pause', () => pauseSession());
