@@ -23,18 +23,29 @@ Repository: https://github.com/TheGeek01/Dark-Whisper (fork of dniasoff/whisper-
 - **Keystrokes**: @nut-tree-fork/libnut 4.2.6 (`keyTap('v', 'control')`)
 - **HTTP**: axios 1.20.0 | **Settings**: electron-store 11.0.2 | **Multipart**: form-data 4.0.6
 - **Build**: electron-builder 26.15.3 (config only in `electron-builder.yml`)
-- **Tests**: Jest 30.5.1 + ts-jest — 245 tests, 20 suites | **Lint**: ESLint 10
+- **Tests**: Jest 30.5.1 + ts-jest — 309 tests, 26 suites | **Lint**: ESLint 10
 
 ## Architecture
-Logic lives in Electron-free modules; one wiring module touches Electron. Jest cannot load Electron, so tests must never import `electron`, `electron-store`, `settingsService`, `whisperRuntime`, `streamRuntime`, `sessionRuntime`, `appIdentity` or `main`.
+Logic lives in Electron-free modules; one wiring module touches Electron. Jest cannot load Electron, so tests must never import `electron`, `electron-store`, `settingsService`, `whisperRuntime`, `streamRuntime`, `sessionRuntime`, `libraryRuntime`, `appIdentity` or `main`.
 
 - **appIdentity.ts** — imported first by main: `app.setName('Dark-Whisper')` and the user-data migration
 - **main.ts** — window, tray, hotkey (pause/resume during a session), lifecycle, all IPC handlers, recording gate
 - **preload.ts** — `contextBridge` API; type-only imports so the bundle requires only `electron`
-- **public/index.html** — vanilla JS UI: status line, setup banner, settings modal, models modal; dynamic text via `textContent` only
+- **public/index.html** — workspace markup only (header, library, document, session panel), CSP-locked, loads `js/renderer/app.js`; `public/app.css` is the dark theme
 
-Electron-free services (unit-tested): `modelCatalog`, `modelManager`, `whisperServer`, `serverOutput`, `serverPaths`, `serverGate`, `settingsMigration`, `userDataMigration`, `streamOutput`, `streamEngine`, `sessionPaths`, `documentStore`, `blockMath`, `sessionService`, `blockRefiner`, `micMuteOutput`, `micMuteService`.
-Electron-bound services: `whisperRuntime` (spawn, ports, `/health`, PID file, log file, stale cleanup), `streamRuntime` (whisper-stream spawn, session dirs, SoX session audio + manifest), `sessionRuntime` (sessions, external-edit guard, refinement permission, mic mute), `settingsService`, `apiService`, `recordingService`, `audioControlService`, `pasteService`, `hotkeyService`.
+Electron-free services (unit-tested): `modelCatalog`, `modelManager`, `whisperServer`, `serverOutput`, `serverPaths`, `serverGate`, `settingsMigration`, `userDataMigration`, `streamOutput`, `streamEngine`, `sessionPaths`, `documentStore`, `blockMath`, `sessionService`, `blockRefiner`, `micMuteOutput`, `micMuteService`, `libraryService` (vault tree, search, moves, path guard), `libraryWatch` (change batching, polling diff).
+Electron-bound services: `whisperRuntime` (spawn, ports, `/health`, PID file, log file, stale cleanup), `streamRuntime` (whisper-stream spawn, session dirs, SoX session audio + manifest), `sessionRuntime` (sessions, external-edit guard, refinement permission, mic mute), `settingsService`, `apiService`, `recordingService`, `audioControlService`, `pasteService`, `hotkeyService`, `libraryRuntime` (library IPC, `fs.watch` + 5 s polling fallback, Recycle Bin, open/reveal, vault picker).
+
+## Workspace (stage 2)
+- Renderer (`src/renderer/` → `public/js/`): vanilla TypeScript compiled by `tsconfig.renderer.json` (`npm run build:renderer`); `marked`/`DOMPurify` are copied to `public/vendor/` and used as classic-script globals (`src/renderer/globals.d.ts`). One state object (`state.ts`, `update(patch)`/`subscribe(listener)`) drives every pane's re-render.
+- DOM-free, Jest-tested: `format.ts`, `libraryTree.ts`, `documentView.ts`, `sessionModel.ts`, `state.ts` — no `window`/`document`, ES2020 library features only (compiled through the tests by the main tsconfig too). DOM modules: `header.ts`, `library.ts`, `document.ts`, `sessionPanel.ts`, `dialogs.ts`, `toast.ts`, `dom.ts`.
+- `src/renderer/` and `src/shared/` (`api.ts`, types only) may import only each other; `.js`-extension imports, `import type` for types. The only `innerHTML` assignment is in `document.ts`, fed by `DOMPurify.sanitize`.
+- CSP: `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'` — no inline scripts or `style` attributes in `public/index.html`; links open in the OS browser, never in-app.
+- Library IPC (`libraryService.ts`/`libraryRuntime.ts`): `library-tree`, `library-search`, `document-read`, `document-rename`, `document-move`, `document-delete`, `folder-create`, `document-open-external`, `document-reveal`, `choose-vault`, `copy-text`; `library-changed` (main → renderer, `{ paths }`, debounced 300 ms). All `file`/`folder` values are vault-relative with forward slashes (`''` = vault root) and go through a path guard; hidden entries (`.` prefix, e.g. `.obsidian`, `.trash`) are excluded.
+- Watcher: `fs.watch` on the vault with a 5 s polling fallback (for network drives where `fs.watch` doesn't fire); changes are batched and diffed before `library-changed` fires.
+- Delete moves files to the Recycle Bin (`shell.trashItem`), never a permanent delete.
+- Recording-document lock: rename, move and delete of the document a session is currently writing are refused; `session-start` takes an optional target folder, and `session-status`/`session-block` (main → renderer) carry the per-block refinement state the session panel renders.
+- `npm run smoke:workspace` (`scripts/workspace-smoke.mjs`) drives a real app instance over the DevTools protocol against a throwaway vault and a throwaway `--user-data-dir` profile, so it never touches the real settings or the installed app's single-instance lock.
 
 ## Transcription API (same for built-in and external)
 - `GET /health` (built-in) or `GET /v1/health` (external) — readiness

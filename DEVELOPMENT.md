@@ -2,7 +2,7 @@
 
 ## Architecture
 
-The code is split so that all decision logic lives in modules that never import Electron, and a single thin layer wires those modules to Electron and the OS. That split is what makes the logic unit-testable: Jest cannot load Electron, so tests under `src/__tests__/` must never import `electron`, `electron-store`, `settingsService`, `whisperRuntime`, `streamRuntime`, `sessionRuntime`, `appIdentity` or `main`.
+The code is split so that all decision logic lives in modules that never import Electron, and a single thin layer wires those modules to Electron and the OS. That split is what makes the logic unit-testable: Jest cannot load Electron, so tests under `src/__tests__/` must never import `electron`, `electron-store`, `settingsService`, `whisperRuntime`, `streamRuntime`, `sessionRuntime`, `libraryRuntime`, `appIdentity` or `main`.
 
 ### Main Process (main.ts)
 - Imports `appIdentity` first: it sets the app name and moves legacy user data before anything resolves `userData`
@@ -13,13 +13,15 @@ The code is split so that all decision logic lives in modules that never import 
 - Decides whether a recording may start (via `serverGate`)
 - Routes the hotkey: pause/resume during a session, quick dictation otherwise; refuses one mode while the other is active
 
-### Renderer Process (public/index.html)
-- Vanilla JS, no framework; context-isolated, talks only through `window.api`
-- Shows recording status, the server status line, the setup banner
-- Settings modal (server mode, Force CPU, hotkey, microphone, auto-mute, external API)
-- Models modal (download, use, delete, custom URL, progress)
-- Temporary session strip (start, pause, stop, live text, reveal document, open vault); stage 2 replaces it
-- All dynamic text is set with `textContent`, never `innerHTML`
+### Renderer (src/renderer → public/js)
+- Vanilla TypeScript compiled by `tsconfig.renderer.json` to ES modules (`npm run build:renderer`); `public/index.html` is markup only and loads `js/renderer/app.js`
+- `marked` and `DOMPurify` are copied to `public/vendor/` and loaded as classic scripts (globals declared in `src/renderer/globals.d.ts`)
+- One state object (`state.ts`) with `update(patch)` / `subscribe(listener)`; each pane re-renders from it
+- DOM-free, Jest-tested: `format.ts`, `libraryTree.ts`, `documentView.ts`, `sessionModel.ts`, `state.ts` (they must not touch `window`/`document` and may use only ES2020 library features, since the main tsconfig compiles them through the tests)
+- DOM: `header.ts`, `library.ts`, `document.ts`, `sessionPanel.ts`, `dialogs.ts` (ask/confirm, Settings, Models), `toast.ts`, `dom.ts`
+- Imports use `.js` extensions and `import type`; renderer code may import only `src/renderer` and `src/shared`
+- The only `innerHTML` is in `document.ts`, fed by `DOMPurify.sanitize`; everything else uses `textContent`
+- CSP `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'` — no inline scripts or `style` attributes in the markup
 
 ### Services Layer
 
@@ -44,6 +46,8 @@ Electron-free (unit-tested):
 | `blockRefiner.ts` | Refinement queue (one at a time, one retry) and the 2 GB memory guard |
 | `micMuteOutput.ts` | The inline PowerShell/C# Core Audio shim and its `muted:true|false` output |
 | `micMuteService.ts` | Polls the mute state and reports changes |
+| `libraryService.ts` | Vault tree, search, read, rename, move, folders; the path guard every renderer path goes through |
+| `libraryWatch.ts` | `ChangeBatcher` debounce and snapshot diffing |
 
 Electron-bound (verified by build, lint and running the app):
 
@@ -59,6 +63,7 @@ Electron-bound (verified by build, lint and running the app):
 | `audioControlService.ts` | Mute and restore system audio |
 | `pasteService.ts` | Clipboard write, verify, Ctrl+V via libnut, clipboard restore |
 | `hotkeyService.ts` | `globalShortcut` registration |
+| `libraryRuntime.ts` | Library IPC, `fs.watch` with a 5 s polling fallback, Recycle Bin, open/reveal, vault picker |
 
 ### Security (preload.ts)
 - Context isolation between main and renderer; no `nodeIntegration`
@@ -184,6 +189,11 @@ Server binaries (and `whisper-stream.exe`, the same way) are resolved in this or
 | `session-status` | main → renderer | `{ state, documentPath, blockIndex, durationSec, refining, message, muted }` |
 | `session-segment` | main → renderer | `{ text, blockIndex }` for each live segment |
 | `transcription-complete`, `recording-started`, `recording-stopped`, `error` | main → renderer | Pre-existing events |
+| `library-tree`, `library-search`, `document-read`, `document-rename`, `document-move`, `document-delete`, `folder-create`, `document-open-external`, `document-reveal`, `choose-vault`, `copy-text` | invoke | Library and clipboard |
+| `library-changed` | main → renderer | `{ paths }`, debounced 300 ms |
+| `session-block` | main → renderer | One block's state |
+
+`session-start` now takes an optional folder, and `session-status` carries `sessionId`, `documentFile`, `folder`, `microphone`, `liveModel`, `refineModel`, `messages` and `blocks`.
 
 ## Testing
 
@@ -193,12 +203,14 @@ npx jest src/__tests__/whisperServer.test.ts    # one suite
 npm run test:coverage
 ```
 
-245 tests across 20 suites. Conventions:
+309 tests across 26 suites. Conventions:
 
 - Use real filesystem work in a temp directory (`fs.mkdtempSync(os.tmpdir())`) rather than mocking `fs`.
 - Inject fakes for processes, HTTP and clocks; never spawn a real process or hit the network, so the suite also passes on the Ubuntu CI runners.
 - Use `jest.useFakeTimers()` with `await jest.advanceTimersByTimeAsync(ms)` for the supervisor's timing behaviour.
 - Use `path.join` in expectations so assertions hold on both Windows and Linux.
+- `npm run smoke:workspace` drives a real app instance over the DevTools protocol against a throwaway vault (and a throwaway `--user-data-dir` profile, so it never touches your settings).
+- `node scripts/dev-cdp.mjs "<expression>"` evaluates one expression in an app started with `--remote-debugging-port=9333`.
 
 ### Manual Test Checklist
 
@@ -224,6 +236,12 @@ Automated tests cannot click the tray or press hotkeys, so before a release:
 - [ ] Session: kill `whisper-stream.exe` → a gap marker appears and recording continues
 - [ ] Session: a session longer than 30 minutes; a vault on another drive or a synced folder
 - [ ] Session: stop → session audio removed after refinement (kept with Keep session audio)
+- [ ] Obsidian open on the vault while recording and while browsing
+- [ ] A 500-document vault opens and searches in under a second
+- [ ] Keyboard-only library navigation
+- [ ] A document with remote images and links (images blocked, links open in the browser)
+- [ ] The window at 900×560 with the panel collapsed
+- [ ] A vault on a network drive (polling notice appears)
 
 ## Debugging
 
@@ -306,9 +324,8 @@ For production releases, sign the executable to avoid SmartScreen warnings.
 
 ## Future Enhancements
 
-1. **Session workspace** - document list, search and editor replacing the temporary session strip
-2. **Voice activity detection** - auto-stop on silence instead of a second hotkey press
-3. **Transcription history** - store and display past transcriptions
-4. **Dark mode** - theme support
-5. **Auto-update** - electron-updater integration
-6. **macOS and Linux** - packaging and a non-Windows recording path
+1. **Voice activity detection** - auto-stop on silence instead of a second hotkey press
+2. **Transcription history** - store and display past transcriptions
+3. **Dark mode** - theme support
+4. **Auto-update** - electron-updater integration
+5. **macOS and Linux** - packaging and a non-Windows recording path

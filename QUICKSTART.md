@@ -67,10 +67,10 @@ Using an external API instead? Set **Transcription server → External API** in 
 ### Testing a session
 
 1. Also download `base.en` (the default live model)
-2. Click **Start session** and talk for a while; text appears in the dark panel within ~2 s
-3. Click **Reveal document** to find the `.md` file in `Documents\Dark-Whisper`
-4. Tip: set **Minutes per block** to 1 to see refinement ("refining 1 block(s)…") sooner
-5. Click **Stop**
+2. Click **Start session**; the new document opens in the centre and fills in as you speak
+3. Watch the Session panel on the right: blocks go live → waiting → refining → refined
+4. Tip: set **Minutes per block** to 1 to see refinement sooner
+5. Click **Stop**; the document stays selected in the library
 
 ### Testing the live engine alone
 
@@ -89,15 +89,18 @@ Prints each segment as you speak (Ctrl+C to stop). Add a capture id after the mo
 | `npm run watch` | Watch files and auto-compile |
 | `npm start` | Build and launch the app |
 | `npm run dev` | Development mode with hot reload |
-| `npm test` | Run the unit tests (245 tests) |
+| `npm test` | Run the unit tests (309 tests) |
 | `npm run lint` | Check code style |
 | `npm run whisper:fetch` | Download the pinned whisper.cpp CPU binaries |
 | `npm run stream:probe -- <model>` | Run the live engine alone |
+| `npm run build:renderer` | Compile the window code and copy marked/DOMPurify |
+| `npm run smoke:workspace` | End-to-end check of the workspace in a throwaway vault |
 | `npm run build:windows` | Build the Windows installer |
 
 ## File Locations
 
 - **Source Code**: `src/`
+- **Window code**: src/renderer/ (compiled to public/js/, generated)
 - **Compiled Code**: `dist/` (auto-generated)
 - **Server Binaries**: `resources/whisper/{cpu,vulkan}/` (generated, gitignored)
 - **Recordings**: `%APPDATA%/Dark-Whisper/recordings/`

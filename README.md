@@ -6,7 +6,7 @@ Transcription runs on a **built-in [whisper.cpp](https://github.com/ggml-org/whi
 
 ## Features
 
-- **Live Sessions** - Transcribe continuously into a Markdown file in a vault folder you choose; the file is never more than one sentence behind you
+- **Workspace** - A library of your vault (folders, search), a live view of the document being written, and a panel showing each block's refinement
 - **Block Refinement** - Every two minutes the finished block is re-transcribed with your main model and replaced in the file, unless you have edited it
 - **Mic Mute as Pause** - Muting the microphone (in Windows or with a hardware key) pauses the session; the hotkey pauses and resumes it too
 - **Built-in Transcription Server** - Bundled whisper.cpp server, started and supervised by the app; no separate install
@@ -160,14 +160,21 @@ For a GPU (Vulkan) server build, set `WHISPER_SERVER_DIR` to a folder containing
 
 If the built-in server is not ready, the hotkey does not record. Instead the app tells you why: no model installed (the Models screen opens), the model is still loading, or the server hit an error.
 
+### The Workspace
+
+The window has three panes under a header:
+
+- **Header** — the server status, **Dictate** (quick dictation, with the last result and a Copy button), **Start session** / **Pause** / **Stop**, and the Models (🧠) and Settings (⚙️) dialogs.
+- **Library** (left) — every Markdown file in your vault, in its folders, newest first. Type to filter titles; press Enter (or pause) to search the text of every document; click a result to jump to the line. The ⋯ menu on a document renames, moves, opens it in your editor, shows it in Explorer or moves it to the Recycle Bin. **+ folder** creates a folder. Keyboard: ↑/↓, ←/→, Enter, F2 (rename), Delete, Ctrl+F (search).
+- **Document** (centre) — the selected document, read-only. ✎ renames, ⧉ copies the text, ↗ opens it in your editor. Edits you make elsewhere (Obsidian, VS Code) appear within a second.
+- **Session** (right, collapsible with ⟩) — state, microphone, models, target folder, every block's refinement state (click one to jump to it), and messages. With no session running it shows the selected document's details.
+
 ### Recording a Session
 
-Quick dictation (above) pastes a short recording into another app. A **session** is for longer dictation: notes, drafts, meetings.
-
-1. Open the window and click **Start session**
-2. Speak. Text appears in the dark panel within a couple of seconds, and is appended to a new file in your vault: `<vault>\YYYY-MM-DD-HHmm-untitled.md`
+1. Select a folder in the library if the session belongs to a project (otherwise it goes to the vault root)
+2. Click **Start session** and speak. The new document opens in the centre and follows your words; scroll up to read back, and **Jump to live** to return
 3. Press the hotkey (or **Pause**) to pause, and again to resume. Muting your microphone pauses the session as well; unmuting resumes it
-4. Click **Stop** when you are done
+4. Click **Stop** when you are done. The document cannot be renamed, moved or deleted while it is recording
 
 The live text comes from a small, fast model (`liveModelId`, `base.en` by default), which must be installed in the Models screen. Every two minutes of audio forms a **block**. When a block closes, its audio is sent to the built-in server, which re-transcribes it with your main model and replaces the block in the file. "refining N block(s)…" shows the queue.
 
@@ -194,7 +201,7 @@ The refined text of the first two minutes.
 ...
 ```
 
-The `<!-- dw:block … -->` markers are how blocks are found again; leave them in place if you edit the file. The session controls in the window are temporary and will be replaced by a full workspace.
+The `<!-- dw:block … -->` markers are how blocks are found again; leave them in place if you edit the file.
 
 ### Managing Speech Models
 
@@ -220,7 +227,7 @@ Downloads are verified against Hugging Face's SHA256 and checked for the GGML fo
    - **Microphone Device** - Choose which input device records
    - **Auto-mute system audio** - Silence other audio while recording
    - **Session microphone** - The microphone sessions use (the list fills in once a session has started)
-   - **Vault folder** - Where session documents are written (default `Documents\Dark-Whisper`)
+   - **Vault folder** - Where session documents are written; pick it with **Choose folder…** (default `Documents\Dark-Whisper`)
    - **Live model** - The fast model for live text (default `ggml-base.en.bin`)
    - **Language** - Transcription language for sessions (default `en`)
    - **Minutes per block** - How often a block closes and is refined (default 2)
@@ -475,6 +482,8 @@ curl -X POST http://127.0.0.1:4444/v1/audio/transcriptions \
 | `npm test:coverage` | Generate code coverage report |
 | `npm run whisper:fetch` | Download the pinned whisper.cpp CPU server and `whisper-stream` into `resources/whisper/cpu` |
 | `npm run stream:probe -- <model> [capture id]` | Run the live engine alone and print what it hears |
+| `npm run build:renderer` | Compile the window code and copy marked/DOMPurify |
+| `npm run smoke:workspace` | End-to-end check of the workspace in a throwaway vault |
 | `npm run build:windows` | Build Windows NSIS installer |
 
 ### Project Structure
@@ -485,6 +494,11 @@ Dark-Whisper/
 │   ├── appIdentity.ts             # App name and user-data migration (imported first)
 │   ├── main.ts                    # Electron main process, lifecycle, tray, IPC
 │   ├── preload.ts                 # Secure IPC bridge
+│   ├── shared/api.ts              # Types shared by main, preload and renderer
+│   ├── renderer/                  # Window code (ES modules → public/js)
+│   │   ├── app.ts, state.ts       # Entry point and app state
+│   │   ├── header.ts, library.ts, document.ts, sessionPanel.ts, dialogs.ts
+│   │   └── format.ts, libraryTree.ts, documentView.ts, sessionModel.ts   # DOM-free, tested
 │   ├── services/
 │   │   ├── hotkeyService.ts       # Global keyboard shortcut handling
 │   │   ├── recordingService.ts    # SoX recording and device enumeration
@@ -511,10 +525,13 @@ Dark-Whisper/
 │   │   ├── blockRefiner.ts        # Refinement queue and memory guard
 │   │   ├── micMuteOutput.ts       # Core Audio mute shim and its output
 │   │   ├── micMuteService.ts      # Microphone mute polling
-│   │   └── sessionRuntime.ts      # Electron/Node wiring for sessions
-│   └── __tests__/                 # Unit tests (245 tests, 20 suites)
+│   │   ├── sessionRuntime.ts      # Electron/Node wiring for sessions
+│   │   ├── libraryService.ts      # Vault tree, search, moves, path guard
+│   │   ├── libraryWatch.ts        # Change batching, polling diff
+│   │   └── libraryRuntime.ts      # Library IPC and vault watcher
+│   └── __tests__/                 # Unit tests (309 tests, 26 suites)
 ├── public/
-│   └── index.html                 # UI (status, settings, models)
+│   └── index.html, app.css        # Workspace markup and dark theme
 ├── assets/
 │   └── whisper.ico                # Application icon
 ├── scripts/
@@ -569,6 +586,7 @@ The application implements several security measures:
 - **Model Download Verification** - Curated models are pinned to SHA256 hashes; custom links must be `https://huggingface.co/...` and every download is checked for the GGML format before use
 - **Model Path Validation** - Model identifiers are re-validated in the main process, so the renderer cannot reach outside the models directory
 - **Localhost-only Server** - The built-in server binds `127.0.0.1` and is never started with ffmpeg conversion enabled
+- **Sanitised documents** - Markdown is rendered with marked and cleaned with DOMPurify; a Content-Security-Policy blocks scripts and remote images, and links open in your browser, never in the app window
 
 Note: the built-in server has no authentication, so other programs running as you on the same machine could use it while the app is open. That is the normal trade-off for a single-user desktop app.
 
@@ -614,7 +632,6 @@ To view debug output and logs:
 
 Potential features for future releases:
 
-- [ ] A full session workspace (document list, search, editor) replacing the temporary session controls
 - [ ] Multi-language support in UI (quick dictation's language is currently fixed to English)
 - [ ] Dark mode theme
 - [ ] Recording history and replay
@@ -678,6 +695,7 @@ When reporting a transcription problem, please include the status line text and,
 
 ### Unreleased
 
+- Three-pane workspace: vault library with folders and search, live document view, session panel with per-block refinement state; quick dictation moves to the header
 - Renamed to Dark-Whisper; user data moves to `%APPDATA%\Dark-Whisper` on first start
 - Live sessions: whisper-stream writes a Markdown document in a vault folder as you speak
 - Completed blocks are re-transcribed with the main model, and never overwrite your edits

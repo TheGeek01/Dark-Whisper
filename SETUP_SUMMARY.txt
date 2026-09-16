@@ -8,6 +8,11 @@ Version 1.1.0
 │   ├── appIdentity.ts             - App name + user-data migration (imported first)
 │   ├── main.ts                    - Electron app, tray, lifecycle, IPC handlers
 │   ├── preload.ts                 - Secure IPC bridge (context-isolated)
+│   ├── shared/api.ts              - Types shared by main, preload and renderer
+│   ├── renderer/                  - Window code (ES modules -> public/js)
+│   │   ├── app.ts, state.ts       - Entry point and app state
+│   │   ├── header.ts, library.ts, document.ts, sessionPanel.ts, dialogs.ts
+│   │   └── format.ts, libraryTree.ts, documentView.ts, sessionModel.ts - DOM-free, tested
 │   └── services/
 │       ├── hotkeyService.ts       - Global hotkey (Ctrl+Q by default)
 │       ├── recordingService.ts    - SoX recording, input device list
@@ -34,8 +39,11 @@ Version 1.1.0
 │       ├── blockRefiner.ts        - Refinement queue + memory guard
 │       ├── micMuteOutput.ts       - Core Audio mute shim
 │       ├── micMuteService.ts      - Mic mute polling
-│       └── sessionRuntime.ts      - Electron/Node wiring for sessions
-├── public/index.html              - UI: status line, settings, models, session strip
+│       ├── sessionRuntime.ts      - Electron/Node wiring for sessions
+│       ├── libraryService.ts      - Vault tree, search, moves, path guard
+│       ├── libraryWatch.ts        - Change batching, polling diff
+│       └── libraryRuntime.ts      - Library IPC and vault watcher
+├── public/index.html, app.css     - Workspace markup and theme
 ├── assets/whisper.ico             - Application icon
 ├── scripts/fetch-whisper.js       - Dev: fetch pinned whisper.cpp CPU binaries
 ├── scripts/stream-probe.js        - Dev: run the live engine alone
@@ -73,16 +81,17 @@ Transcription engine: whisper.cpp b5130 - whisper-server and whisper-stream
   npm run watch         → Auto-compile on changes
   npm start             → Build & launch app
   npm run dev           → Development with hot reload
-  npm test              → Unit tests (245 tests, 20 suites)
+  npm test              → Unit tests (309 tests, 26 suites)
   npm run lint          → ESLint
   npm run whisper:fetch → Download pinned whisper.cpp CPU binaries
   npm run stream:probe  → Run the live engine alone
+  npm run build:renderer → Compile the window code and copy marked/DOMPurify
+  npm run smoke:workspace → End-to-end check of the workspace in a throwaway vault
   npm run build:windows → Build the Windows installer
 
 ✅ KEY FEATURES
-0. Live sessions - whisper-stream writes a Markdown document in the vault as
-   you speak; 2-minute blocks are re-transcribed by whisper-server and
-   replaced unless edited; mic mute and the hotkey pause the session
+0. Workspace - vault library (folders, search), live document view, session
+   panel with per-block refinement; sessions as in stage 1
 1. Built-in whisper.cpp server - bundled, started and supervised by the app;
    localhost only, GPU (Vulkan) with automatic CPU fallback
 2. Speech model manager - SHA256-verified downloads from Hugging Face plus
