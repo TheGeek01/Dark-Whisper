@@ -469,7 +469,8 @@ Run: `git status --short` — `resources/` must not appear (gitignored).
   - `interface CaptureDevice { index: number; name: string }`
   - `type StreamEvent = { kind: 'ready' } | { kind: 'segment'; text: string } | { kind: 'device'; device: CaptureDevice } | { kind: 'capture-failed' } | { kind: 'model-load-failed' }`
   - `stripAnsi(line: string): string`
-  - `parseStreamLine(line: string): StreamEvent | null`
+  - `type StreamSource = 'stdout' | 'stderr'`
+  - `parseStreamLine(line: string, source: StreamSource): StreamEvent | null` — stderr yields only device/capture-failed/model-load-failed; stdout yields ready or segments, with no prefix guessing
   - `isNoiseSegment(text: string): boolean`
 
 - [ ] **Step 1: Write the failing test**
@@ -892,7 +893,7 @@ Create `src/services/streamEngine.ts`:
 
 ```ts
 import { LineBuffer, restartDelay } from './serverOutput';
-import { CaptureDevice, isNoiseSegment, parseStreamLine } from './streamOutput';
+import { CaptureDevice, isNoiseSegment, parseStreamLine, StreamSource } from './streamOutput';
 
 export type StreamState = 'idle' | 'starting' | 'listening' | 'paused' | 'stopped' | 'error';
 
@@ -960,7 +961,8 @@ export class StreamEngine {
   private readonly statusListeners = new Set<(s: StreamStatus) => void>();
   private readonly segmentListeners = new Set<(s: { text: string; atMs: number }) => void>();
   private readonly launchListeners = new Set<(l: { atMs: number }) => void>();
-  private readonly log = new LineBuffer(500);
+  private readonly stdoutLines = new LineBuffer(500);
+  private readonly stderrLines = new LineBuffer(500);
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private proc: StreamProcess | null = null;
   private generation = 0;
@@ -1041,7 +1043,7 @@ export class StreamEngine {
 
   private setStatus(next: StreamStatus): void {
     this.status = next;
-    this.deps.writeLog(this.log.lines());
+    this.deps.writeLog([...this.stderrLines.lines(), ...this.stdoutLines.lines()]);
     const snapshot = this.getStatus();
     for (const l of this.statusListeners) l(snapshot);
   }
@@ -1067,14 +1069,16 @@ export class StreamEngine {
     const proc = this.deps.spawnStream(binary, buildStreamArgs(opts), opts.cwd);
     this.proc = proc;
 
-    const handle = (chunk: Buffer | string) => {
-      for (const line of this.log.push(String(chunk))) {
+    // Each stream gets its own buffer: whisper-stream writes transcript text to stdout and
+    // every diagnostic to stderr, and interleaving them would corrupt partial lines.
+    const handle = (source: StreamSource, buffer: LineBuffer) => (chunk: Buffer | string) => {
+      for (const line of buffer.push(String(chunk))) {
         if (generation !== this.generation) return;
-        this.handleLine(line);
+        this.handleLine(line, source);
       }
     };
-    proc.stdout.on('data', handle);
-    proc.stderr.on('data', handle);
+    proc.stdout.on('data', handle('stdout', this.stdoutLines));
+    proc.stderr.on('data', handle('stderr', this.stderrLines));
     proc.onExit((code) => this.handleExit(generation, code));
 
     const deadline = this.deps.now() + STREAM_READY_TIMEOUT_MS;
@@ -1093,8 +1097,8 @@ export class StreamEngine {
     }, 500);
   }
 
-  private handleLine(line: string): void {
-    const event = parseStreamLine(line);
+  private handleLine(line: string, source: StreamSource): void {
+    const event = parseStreamLine(line, source);
     if (!event) return;
 
     switch (event.kind) {

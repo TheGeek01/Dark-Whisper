@@ -78,7 +78,9 @@ whisper-stream.exe -m <liveModelPath> --step 0 --length 10000 -vth 0.6 -t <threa
 | `couldn't open an audio device for capture` | Capture failure → `error` |
 | `error: failed to initialize whisper context` | Model load failure → `error`, no retry |
 
-The parser strips ANSI sequences (`\33[2K\r`), ignores blank lines, and reuses the existing `LineBuffer` for partial lines.
+The parser strips ANSI sequences (`\33[2K\r`), ignores blank lines, and reuses the existing `LineBuffer` for partial lines — one buffer per stream, since interleaving them would corrupt partial lines.
+
+**Parsing is stream-aware.** `whisper-stream.exe` writes every diagnostic (`load_backend:`, `usage`, `init:`, the device list) to **stderr** and only `[Start speaking]` plus transcript text to **stdout** (verified against the b5130 binary). So stderr lines can only produce device/capture-failure/model-load-failure events, and stdout lines are the ready marker or speech. No prefix heuristic is used: an earlier attempt to recognise diagnostics by shape silently swallowed real dictation such as "12:30 is when we start".
 
 ### 4.3 States
 
