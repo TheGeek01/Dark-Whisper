@@ -1,0 +1,16 @@
+import { initDialogs } from './dialogs.js';
+import { initHeader, setShortcut } from './header.js';
+import { applyBlock, applySegment, applyStatus } from './sessionModel.js';
+import { getState, update } from './state.js';
+import { reportError } from './toast.js';
+
+function initSession(): void {
+  window.api.onSessionStatus((status) => update({ session: applyStatus(getState().session, status) }));
+  window.api.onSessionBlock((event) => update({ session: applyBlock(getState().session, event) }));
+  window.api.onSessionSegment((segment) => update({ session: applySegment(getState().session, segment) }));
+  window.api.getSessionStatus().then((status) => update({ session: applyStatus(getState().session, status) }), reportError);
+}
+
+initDialogs({ onSettingsSaved: (settings) => setShortcut(settings.shortcut) });
+initHeader();
+initSession();
