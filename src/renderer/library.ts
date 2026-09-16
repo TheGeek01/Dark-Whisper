@@ -61,9 +61,12 @@ function selectFolder(path: string, expand?: boolean): void {
 export async function renameDocument(doc: { file: string; title: string }): Promise<void> {
   const title = await ask({ title: 'Rename document', value: doc.title, confirmLabel: 'Rename' });
   if (title === null || title.trim() === '' || title.trim() === doc.title) return;
-  const next = await window.api.renameDocument(doc.file, title.trim());
-  if (getState().selectedFile === doc.file) update({ selectedFile: next });
-  await reloadTree();
+  try {
+    const next = await window.api.renameDocument(doc.file, title.trim());
+    if (getState().selectedFile === doc.file) update({ selectedFile: next });
+  } finally {
+    await reloadTree();
+  }
 }
 
 async function moveDocument(doc: LibraryDocument): Promise<void> {
@@ -76,18 +79,24 @@ async function moveDocument(doc: LibraryDocument): Promise<void> {
   }
   const folder = await ask({ title: `Move "${doc.title}"`, choices, confirmLabel: 'Move' });
   if (folder === null) return;
-  const next = await window.api.moveDocument(doc.file, folder);
-  if (getState().selectedFile === doc.file) {
-    update({ selectedFile: next, expanded: expandTo(getState().expanded, folder) });
+  try {
+    const next = await window.api.moveDocument(doc.file, folder);
+    if (getState().selectedFile === doc.file) {
+      update({ selectedFile: next, expanded: expandTo(getState().expanded, folder) });
+    }
+  } finally {
+    await reloadTree();
   }
-  await reloadTree();
 }
 
 async function deleteDocument(doc: LibraryDocument): Promise<void> {
   if (!(await confirmAction('Delete document', `Move "${doc.title}" to the Recycle Bin?`, 'Delete'))) return;
-  await window.api.deleteDocument(doc.file);
-  if (getState().selectedFile === doc.file) update({ selectedFile: null, document: null });
-  await reloadTree();
+  try {
+    await window.api.deleteDocument(doc.file);
+    if (getState().selectedFile === doc.file) update({ selectedFile: null, document: null });
+  } finally {
+    await reloadTree();
+  }
 }
 
 async function newFolder(): Promise<void> {
@@ -139,7 +148,7 @@ function showMenu(anchor: HTMLElement, actions: MenuAction[]): void {
   const rect = anchor.getBoundingClientRect();
   menu.hidden = false;
   menu.style.left = `${Math.max(4, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 4))}px`;
-  menu.style.top = `${Math.min(rect.bottom + 2, window.innerHeight - menu.offsetHeight - 4)}px`;
+  menu.style.top = `${Math.max(4, Math.min(rect.bottom + 2, window.innerHeight - menu.offsetHeight - 4))}px`;
   (menu.firstElementChild as HTMLElement | null)?.focus();
 }
 
@@ -320,6 +329,14 @@ function onTreeKey(event: KeyboardEvent): void {
     case 'Delete':
       if (doc && doc.file !== recordingFile()) deleteDocument(doc).catch(reportError);
       break;
+    case 'ContextMenu':
+    case 'F10': {
+      if (event.key === 'F10' && !event.shiftKey) return;
+      if (!doc) return;
+      const anchor = byId('libraryBody').querySelector<HTMLElement>(`[data-key="doc:${doc.file}"]`);
+      if (anchor) showDocumentMenu(doc, anchor);
+      break;
+    }
     default:
       return;
   }
@@ -349,7 +366,12 @@ export function initLibrary(): void {
       search.select();
     }
   });
-  window.api.onLibraryChanged(() => void reloadTree());
+  window.api.onLibraryChanged(({ paths }) => {
+    // Main sends an empty paths list after the vault setting changes: the old tree's folders
+    // no longer mean anything, so drop the selected folder and expansion state before reloading.
+    if (paths.length === 0) update({ selectedFolder: '', expanded: new Set() });
+    void reloadTree();
+  });
 
   subscribe((_state, changed) => {
     const recording = recordingFile();
