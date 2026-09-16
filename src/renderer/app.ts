@@ -1,4 +1,5 @@
 import { initDialogs } from './dialogs.js';
+import { initDocument } from './document.js';
 import { initHeader, setShortcut } from './header.js';
 import { initLibrary } from './library.js';
 import { applyBlock, applySegment, applyStatus } from './sessionModel.js';
@@ -15,4 +16,5 @@ function initSession(): void {
 initDialogs({ onSettingsSaved: (settings) => setShortcut(settings.shortcut) });
 initHeader();
 initLibrary();
+initDocument();
 initSession();
