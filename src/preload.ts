@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { DownloadProgress, ModelEntry } from './services/modelManager';
 import type { ServerStatusView } from './services/serverGate';
+import type { SessionStatusView } from './services/sessionRuntime';
+import type { CaptureDevice } from './services/streamOutput';
 
 interface ModelList {
   models: ModelEntry[];
@@ -69,6 +71,20 @@ contextBridge.exposeInMainWorld('api', {
   onOpenModels: (callback: () => void) => {
     ipcRenderer.on('open-models', () => callback());
   },
+  startSession: (): Promise<SessionStatusView> => ipcRenderer.invoke('session-start'),
+  pauseSession: (): Promise<void> => ipcRenderer.invoke('session-pause'),
+  resumeSession: (): Promise<void> => ipcRenderer.invoke('session-resume'),
+  stopSession: (): Promise<void> => ipcRenderer.invoke('session-stop'),
+  getSessionStatus: (): Promise<SessionStatusView> => ipcRenderer.invoke('session-status'),
+  listCaptureDevices: (): Promise<CaptureDevice[]> => ipcRenderer.invoke('list-capture-devices'),
+  openVault: (): Promise<void> => ipcRenderer.invoke('open-vault'),
+  revealDocument: (): Promise<void> => ipcRenderer.invoke('reveal-document'),
+  onSessionStatus: (callback: (view: SessionStatusView) => void) => {
+    ipcRenderer.on('session-status', (_event, view: SessionStatusView) => callback(view));
+  },
+  onSessionSegment: (callback: (segment: { text: string; blockIndex: number }) => void) => {
+    ipcRenderer.on('session-segment', (_event, segment: { text: string; blockIndex: number }) => callback(segment));
+  },
 });
 
 declare global {
@@ -97,6 +113,16 @@ declare global {
       onServerStatus: (callback: (status: ServerStatusView) => void) => void;
       onDownloadProgress: (callback: (progress: DownloadProgress) => void) => void;
       onOpenModels: (callback: () => void) => void;
+      startSession: () => Promise<SessionStatusView>;
+      pauseSession: () => Promise<void>;
+      resumeSession: () => Promise<void>;
+      stopSession: () => Promise<void>;
+      getSessionStatus: () => Promise<SessionStatusView>;
+      listCaptureDevices: () => Promise<CaptureDevice[]>;
+      openVault: () => Promise<void>;
+      revealDocument: () => Promise<void>;
+      onSessionStatus: (callback: (view: SessionStatusView) => void) => void;
+      onSessionSegment: (callback: (segment: { text: string; blockIndex: number }) => void) => void;
     };
   }
 }

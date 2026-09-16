@@ -29,9 +29,11 @@ export class MicMuteService {
     this.schedule();
   }
 
+  // Forgets the last reading, so the first poll after the next start() always reports.
   stop(): void {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    this.muted = null;
   }
 
   async setMuted(muted: boolean): Promise<void> {

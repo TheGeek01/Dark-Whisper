@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import Store from 'electron-store';
+import type { RefineMode } from './blockRefiner';
 import { initialServerMode, ServerMode } from './settingsMigration';
 
 export interface Settings {
@@ -16,7 +17,16 @@ export interface Settings {
   gpuFallbackVersion: string | null;
   liveModelId: string;
   language: string;
+  vaultPath: string;
+  refineDuringRecording: RefineMode;
+  refineWithExternalApi: boolean;
+  blockMinutes: number;
+  keepSessionAudio: boolean;
+  timestampHeadings: boolean;
+  captureDeviceName: string;
 }
+
+const defaultVaultPath = path.join(app.getPath('documents'), 'Dark-Whisper');
 
 // Must be checked before the store is created, because creating it writes the defaults to disk.
 const configFileExisted = fs.existsSync(path.join(app.getPath('userData'), 'config.json'));
@@ -34,6 +44,13 @@ const store = new Store({
     gpuFallbackVersion: null,
     liveModelId: 'ggml-base.en.bin',
     language: 'en',
+    vaultPath: defaultVaultPath,
+    refineDuringRecording: 'auto',
+    refineWithExternalApi: false,
+    blockMinutes: 2,
+    keepSessionAudio: false,
+    timestampHeadings: false,
+    captureDeviceName: '',
   },
 }) as unknown as Store<Settings>;
 
@@ -56,6 +73,13 @@ export function getSettings(): Settings {
     gpuFallbackVersion: storeAny.get('gpuFallbackVersion', null),
     liveModelId: storeAny.get('liveModelId', 'ggml-base.en.bin'),
     language: storeAny.get('language', 'en'),
+    vaultPath: storeAny.get('vaultPath', defaultVaultPath),
+    refineDuringRecording: storeAny.get('refineDuringRecording', 'auto'),
+    refineWithExternalApi: storeAny.get('refineWithExternalApi', false),
+    blockMinutes: storeAny.get('blockMinutes', 2),
+    keepSessionAudio: storeAny.get('keepSessionAudio', false),
+    timestampHeadings: storeAny.get('timestampHeadings', false),
+    captureDeviceName: storeAny.get('captureDeviceName', ''),
   };
 }
 

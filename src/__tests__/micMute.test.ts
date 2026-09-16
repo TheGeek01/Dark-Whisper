@@ -105,6 +105,17 @@ describe('MicMuteService', () => {
     expect(ctx.deps.readMute).toHaveBeenCalledTimes(2);
   });
 
+  it('reports the first reading again after a restart', async () => {
+    const ctx = setup(true);
+    ctx.service.start();
+    await jest.advanceTimersByTimeAsync(1000);
+    ctx.service.stop();
+    expect(ctx.service.isMuted()).toBeNull();
+    ctx.service.start();
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(ctx.changes).toEqual([true, true]);
+  });
+
   it('survives a rejecting shim', async () => {
     const ctx = setup(false);
     ctx.deps.readMute.mockRejectedValueOnce(new Error('powershell missing'));

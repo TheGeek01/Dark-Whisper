@@ -11,6 +11,20 @@ import { saveAndMuteAudio, restoreAudio } from './services/audioControlService';
 import { cleanupStaleServer, modelManager, openServerLog, startBuiltinServer, whisperServer } from './services/whisperRuntime';
 import { recordingGate, toStatusView } from './services/serverGate';
 import type { DownloadProgress } from './services/modelManager';
+import {
+  captureDevices,
+  isSessionActive,
+  onSessionSegment,
+  onSessionStatus,
+  openVault,
+  pauseSession,
+  resumeSession,
+  revealDocument,
+  SessionStatusView,
+  sessionStatus,
+  startSession,
+  stopSession,
+} from './services/sessionRuntime';
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -102,11 +116,24 @@ const applyApiConfig = () => {
   }
 };
 
+const SESSION_TRAY_LABELS: Partial<Record<SessionStatusView['state'], string>> = {
+  starting: 'Session starting',
+  recording: 'Session recording',
+  paused: 'Session paused',
+  error: 'Session error',
+};
+
+// The tray reports the active mode: a running session wins over the server status.
+const updateTrayTooltip = () => {
+  const sessionLabel = isSessionActive() ? SESSION_TRAY_LABELS[sessionStatus().state] : undefined;
+  tray?.setToolTip(`Dark-Whisper — ${sessionLabel ?? currentStatusView().text}`);
+};
+
 const handleServerStatus = () => {
   applyApiConfig();
   const view = currentStatusView();
   mainWindow?.webContents.send('server-status', view);
-  tray?.setToolTip(`Dark-Whisper — ${view.text}`);
+  updateTrayTooltip();
 };
 
 const canStartRecording = (): boolean => {
@@ -205,6 +232,11 @@ app.on('ready', () => {
   registerShortcuts(handleRecordingToggle, settings.shortcut);
 
   whisperServer.onStatus(handleServerStatus);
+  onSessionStatus((view) => {
+    mainWindow?.webContents.send('session-status', view);
+    updateTrayTooltip();
+  });
+  onSessionSegment((segment) => mainWindow?.webContents.send('session-segment', segment));
   modelManager.onProgress((progress) => mainWindow?.webContents.send('download-progress', progress));
   handleServerStatus();
 
@@ -234,6 +266,9 @@ app.on('activate', () => {
 app.on('before-quit', () => {
   if (mainWindow) {
     mainWindow.removeAllListeners('close');
+  }
+  if (isSessionActive()) {
+    void stopSession();
   }
   modelManager.cancelDownload();
   whisperServer.stop();
@@ -351,6 +386,11 @@ const startRecordingSession = async () => {
 };
 
 const handleRecordingToggle = async () => {
+  if (isSessionActive()) {
+    const paused = sessionStatus().state === 'paused';
+    await (paused ? resumeSession() : pauseSession());
+    return;
+  }
   if (isRecording) {
     await stopRecording();
   } else if (canStartRecording()) {
@@ -364,6 +404,11 @@ ipcMain.handle('get-status', () => {
 });
 
 ipcMain.handle('start-recording', async () => {
+  if (isSessionActive()) {
+    mainWindow?.webContents.send('error', { message: 'A recording session is in progress. Stop it before using quick dictation.' });
+    return;
+  }
+
   if (isRecording) {
     mainWindow?.webContents.send('error', { message: 'Recording already in progress.' });
     return;
@@ -472,3 +517,18 @@ ipcMain.handle('select-model', async (_event, id: string) => {
   saveSettings({ modelId: id });
   await startBuiltinServer();
 });
+
+ipcMain.handle('session-start', async () => {
+  if (isRecording) {
+    throw new Error('Quick dictation is recording. Stop it before starting a session.');
+  }
+  return startSession();
+});
+
+ipcMain.handle('session-pause', () => pauseSession());
+ipcMain.handle('session-resume', () => resumeSession());
+ipcMain.handle('session-stop', () => stopSession());
+ipcMain.handle('session-status', () => sessionStatus());
+ipcMain.handle('list-capture-devices', () => captureDevices());
+ipcMain.handle('open-vault', () => openVault());
+ipcMain.handle('reveal-document', () => revealDocument());
