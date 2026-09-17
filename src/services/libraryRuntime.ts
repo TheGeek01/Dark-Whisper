@@ -83,7 +83,7 @@ function asString(value: unknown, name: string): string {
 function unlockedDocument(service: LibraryService, file: string): string {
   const absolute = service.resolve(file, 'document');
   if (isRecordingDocument(absolute)) {
-    throw new Error('This document is being recorded. Stop the session first.');
+    throw new Error('This document is being recorded. Stop recording first.');
   }
   return absolute;
 }

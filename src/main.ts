@@ -1,15 +1,12 @@
 import './appIdentity';
-import { app, BrowserWindow, clipboard, Menu, Tray, ipcMain, Notification, shell } from 'electron';
+import { app, BrowserWindow, clipboard, globalShortcut, Menu, Tray, ipcMain, Notification, shell } from 'electron';
 import path from 'path';
 import * as fs from 'fs';
 import registerShortcuts from './services/hotkeyService';
-import { recordAudio, stopRecording, cleanupOldRecordings, getAudioDevices } from './services/recordingService';
-import { transcribeAudio, checkAPIHealth, setApiConfig, BUILTIN_TIMEOUT_MS, EXTERNAL_TIMEOUT_MS } from './services/apiService';
+import { setApiConfig, BUILTIN_TIMEOUT_MS, EXTERNAL_TIMEOUT_MS } from './services/apiService';
 import { DEFAULT_VAULT_PATH, getSettings, saveSettings } from './services/settingsService';
-import { pasteTranscriptClipboard, copyToClipboard } from './services/pasteService';
-import { saveAndMuteAudio, restoreAudio } from './services/audioControlService';
 import { cleanupStaleServer, modelManager, openServerLog, startBuiltinServer, whisperServer } from './services/whisperRuntime';
-import { recordingGate, toStatusView } from './services/serverGate';
+import { toStatusView } from './services/serverGate';
 import type { DownloadProgress } from './services/modelManager';
 import {
   captureDevices,
@@ -27,16 +24,14 @@ import {
   stopSession,
   toggleQuickNote,
 } from './services/sessionRuntime';
+import { onAudioLevel } from './services/streamRuntime';
 import { parseStartRequest } from './services/quickNotes';
 import { titleBarOverlay, windowBackground } from './services/windowTheme';
 import { onLibraryChanged, registerLibraryIpc, stopWatching, watchVault } from './services/libraryRuntime';
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
-let isRecording = false;
-let currentShortcut: string = 'Ctrl+Q';
-let lastTranscription: string = '';
-let transcriptionNotification: Notification | null = null;
+let currentShortcut = 'Ctrl+Q';
 
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
@@ -113,7 +108,6 @@ const showSystemNotification = (title: string, body: string, autoCloseMs?: numbe
   });
   notification.show();
 
-  // Auto-close after specified time (default 2 seconds), or never if undefined
   if (autoCloseMs !== undefined) {
     setTimeout(() => {
       notification.close();
@@ -143,17 +137,19 @@ const applyApiConfig = () => {
   }
 };
 
-const SESSION_TRAY_LABELS: Partial<Record<SessionStatusView['state'], string>> = {
-  starting: 'Session starting',
-  recording: 'Session recording',
-  paused: 'Session paused',
-  error: 'Session error',
+const RUN_TRAY_STATES: Partial<Record<SessionStatusView['state'], string>> = {
+  starting: 'starting',
+  recording: 'recording',
+  paused: 'paused',
+  error: 'error',
 };
 
-// The tray reports the active mode: a running session wins over the server status.
+// The tray reports the active mode: a running session or quick note wins over the server status.
 const updateTrayTooltip = () => {
-  const sessionLabel = isSessionActive() ? SESSION_TRAY_LABELS[sessionStatus().state] : undefined;
-  tray?.setToolTip(`Dark-Whisper — ${sessionLabel ?? currentStatusView().text}`);
+  const status = isSessionActive() ? sessionStatus() : null;
+  const state = status ? RUN_TRAY_STATES[status.state] : undefined;
+  const label = status && state ? `${status.kind === 'quick-note' ? 'Quick note' : 'Session'} ${state}` : currentStatusView().text;
+  tray?.setToolTip(`Dark-Whisper — ${label}`);
 };
 
 const handleServerStatus = () => {
@@ -163,12 +159,21 @@ const handleServerStatus = () => {
   updateTrayTooltip();
 };
 
-const canStartRecording = (): boolean => {
-  const gate = recordingGate(getSettings().serverMode, whisperServer.getStatus());
-  if (gate.allow) return true;
-  if (gate.action === 'open-models') showModelsWindow();
-  showSystemNotification('Dark-Whisper', gate.message, 4000);
-  return false;
+// The shortcut, the tray and the header button all toggle a quick note (spec §3.4). A refusal
+// (a session is recording) is shown in the window, and as a notification when it is hidden.
+const handleQuickNoteToggle = async () => {
+  try {
+    await toggleQuickNote();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    mainWindow?.webContents.send('error', { message });
+    if (!mainWindow?.isVisible()) showSystemNotification('Dark-Whisper', message, 4000);
+  }
+};
+
+const registerQuickNoteShortcut = (shortcut: string) => {
+  globalShortcut.unregisterAll();
+  registerShortcuts(() => void handleQuickNoteToggle(), shortcut);
 };
 
 const runDownload = (requestedId: string, start: () => Promise<DownloadProgress>) => {
@@ -192,6 +197,35 @@ const runDownload = (requestedId: string, start: () => Promise<DownloadProgress>
     });
 };
 
+const buildTrayMenu = () =>
+  Menu.buildFromTemplate([
+    {
+      label: 'Show/Hide',
+      click: () => {
+        if (mainWindow?.isVisible()) {
+          mainWindow.hide();
+        } else {
+          mainWindow?.show();
+        }
+      },
+    },
+    {
+      label: `Quick note (${currentShortcut})`,
+      click: () => void handleQuickNoteToggle(),
+    },
+    {
+      label: 'Models…',
+      click: showModelsWindow,
+    },
+    { type: 'separator' },
+    {
+      label: 'Exit',
+      click: () => {
+        app.quit();
+      },
+    },
+  ]);
+
 const createTray = () => {
   try {
     // Load custom icon - use app.getAppPath() for correct path in packaged app
@@ -208,35 +242,7 @@ const createTray = () => {
     tray = new Tray(image);
   }
 
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: 'Show/Hide',
-      click: () => {
-        if (mainWindow?.isVisible()) {
-          mainWindow.hide();
-        } else {
-          mainWindow?.show();
-        }
-      },
-    },
-    {
-      label: 'Models…',
-      click: showModelsWindow,
-    },
-    {
-      label: 'Recording Status',
-      enabled: false,
-    },
-    { type: 'separator' },
-    {
-      label: 'Exit',
-      click: () => {
-        app.quit();
-      },
-    },
-  ]);
-
-  tray.setContextMenu(contextMenu);
+  tray.setContextMenu(buildTrayMenu());
   tray.setToolTip('Dark-Whisper');
 };
 
@@ -257,7 +263,7 @@ app.on('ready', () => {
 
   createWindow();
   createTray();
-  registerShortcuts(handleRecordingToggle, settings.shortcut);
+  registerQuickNoteShortcut(settings.shortcut);
 
   whisperServer.onStatus(handleServerStatus);
   onSessionStatus((view) => {
@@ -266,6 +272,7 @@ app.on('ready', () => {
   });
   onSessionSegment((segment) => mainWindow?.webContents.send('session-segment', segment));
   onSessionBlock((event) => mainWindow?.webContents.send('session-block', event));
+  onAudioLevel((level) => mainWindow?.webContents.send('session-level', level));
   // A fresh install has no vault yet; only ever auto-create the default one, never a custom
   // path the user chose (a missing custom vault keeps showing "Vault not found").
   if (settings.vaultPath === DEFAULT_VAULT_PATH) {
@@ -306,165 +313,10 @@ app.on('before-quit', () => {
   if (isSessionActive()) {
     void stopSession();
   }
+  globalShortcut.unregisterAll();
   modelManager.cancelDownload();
   whisperServer.stop();
   stopWatching();
-});
-
-const startRecordingSession = async () => {
-  const settings = getSettings();
-  let audioMuted = false;
-
-  try {
-    cleanupOldRecordings(7 * 24);
-
-    if (settings.serverMode === 'external') {
-      const isAPIHealthy = await checkAPIHealth();
-      if (!isAPIHealthy) {
-        const errorMsg = `Whisper API is not running at ${settings.apiUrl}. Please start the API before recording.`;
-        mainWindow?.webContents.send('error', { message: errorMsg });
-        isRecording = false;
-        return;
-      }
-    }
-
-    // Mute system audio if enabled in settings
-    if (settings.autoMuteAudio) {
-      try {
-        await saveAndMuteAudio();
-        audioMuted = true;
-      } catch (error) {
-        console.error('Failed to mute audio:', error);
-        // Continue recording even if mute fails
-      }
-    }
-
-    mainWindow?.webContents.send('recording-started');
-    showSystemNotification('Dark-Whisper', 'Recording...', 2000);
-
-    const audioPath = await recordAudio(settings.micDevice || 'default');
-    mainWindow?.webContents.send('recording-stopped');
-
-    const stats = fs.statSync(audioPath);
-    if (stats.size === 0) {
-      const errorMsg = 'Recording produced no audio data. Please ensure your microphone is working.';
-      mainWindow?.webContents.send('error', { message: errorMsg });
-      return;
-    }
-
-    transcriptionNotification = showSystemNotification('Dark-Whisper', 'Transcribing...');
-
-    const transcription = await transcribeAudio(audioPath);
-    lastTranscription = transcription;
-
-    if (transcriptionNotification) {
-      transcriptionNotification.close();
-      transcriptionNotification = null;
-    }
-
-    mainWindow?.webContents.send('transcription-complete', { transcription });
-
-    await pasteTranscriptClipboard(transcription, true);
-
-    // Delete audio file with retry (file may be briefly locked after API upload)
-    const deleteWithRetry = async (path: string, retries = 3, delay = 500) => {
-      for (let i = 0; i < retries; i++) {
-        try {
-          fs.unlinkSync(path);
-          return;
-        } catch (err) {
-          if (i < retries - 1) {
-            await new Promise(r => setTimeout(r, delay));
-          }
-        }
-      }
-    };
-    deleteWithRetry(audioPath).catch(() => {
-      // Silently fail - cleanup service will handle old files
-    });
-  } catch (error) {
-    console.error('Recording/transcription error:', error);
-
-    // Close transcription notification on error
-    if (transcriptionNotification) {
-      transcriptionNotification.close();
-      transcriptionNotification = null;
-    }
-
-    let errorMessage: string;
-    const errorStr = String(error);
-
-    if (errorStr.includes('ECONNREFUSED') || errorStr.includes('ENOTFOUND')) {
-      errorMessage = settings.serverMode === 'builtin'
-        ? 'Cannot connect to the built-in transcription server. Try Restart in the main window.'
-        : `Cannot connect to Whisper API. Make sure it's running at ${settings.apiUrl}`;
-    } else if (errorStr.includes('ENOENT') || errorStr.includes('not found')) {
-      errorMessage = 'Audio file was not created. Check microphone connection.';
-    } else if (errorStr.includes('Invalid response')) {
-      errorMessage = 'API returned an unexpected response. Check your Whisper API version.';
-    } else if (errorStr.includes('timeout')) {
-      errorMessage = 'Request timed out. The API might be overloaded or unresponsive.';
-    } else {
-      errorMessage = `Error: ${errorStr.split('\n')[0].substring(0, 100)}`;
-    }
-
-    mainWindow?.webContents.send('error', { message: errorMessage });
-  } finally {
-    // Restore audio if it was muted
-    if (audioMuted) {
-      try {
-        await restoreAudio();
-      } catch (error) {
-        console.error('Failed to restore audio:', error);
-      }
-    }
-    isRecording = false;
-  }
-};
-
-const handleRecordingToggle = async () => {
-  if (isSessionActive()) {
-    const paused = sessionStatus().state === 'paused';
-    await (paused ? resumeSession() : pauseSession());
-    return;
-  }
-  if (isRecording) {
-    await stopRecording();
-  } else if (canStartRecording()) {
-    isRecording = true;
-    void startRecordingSession();
-  }
-};
-
-ipcMain.handle('get-status', () => {
-  return { isRecording };
-});
-
-ipcMain.handle('start-recording', async () => {
-  if (isSessionActive()) {
-    mainWindow?.webContents.send('error', { message: 'A recording session is in progress. Stop it before using quick dictation.' });
-    return;
-  }
-
-  if (isRecording) {
-    mainWindow?.webContents.send('error', { message: 'Recording already in progress.' });
-    return;
-  }
-
-  if (!canStartRecording()) {
-    return;
-  }
-
-  isRecording = true;
-  void startRecordingSession();
-});
-
-ipcMain.handle('stop-recording', async () => {
-  if (!isRecording) {
-    return;
-  }
-
-  await stopRecording();
 });
 
 ipcMain.handle('get-settings', () => {
@@ -474,7 +326,7 @@ ipcMain.handle('get-settings', () => {
 ipcMain.handle('save-settings', async (_event, settings: any) => {
   const before = getSettings();
   if (typeof settings?.vaultPath === 'string' && settings.vaultPath !== before.vaultPath && isSessionActive()) {
-    throw new Error('Stop the recording session before changing the vault.');
+    throw new Error('Stop recording before changing the vault.');
   }
   saveSettings(settings);
   const after = getSettings();
@@ -497,27 +349,13 @@ ipcMain.handle('save-settings', async (_event, settings: any) => {
   }
   handleServerStatus();
 
-  if (settings.shortcut) {
-    currentShortcut = settings.shortcut;
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-    const { globalShortcut } = require('electron');
-    globalShortcut.unregisterAll();
-    registerShortcuts(handleRecordingToggle, settings.shortcut);
+  if (after.shortcut !== before.shortcut) {
+    currentShortcut = after.shortcut;
+    registerQuickNoteShortcut(after.shortcut);
+    tray?.setContextMenu(buildTrayMenu());
   }
 
   return { success: true };
-});
-
-ipcMain.handle('copy-to-clipboard', async () => {
-  if (lastTranscription) {
-    await copyToClipboard(lastTranscription);
-    return { success: true };
-  }
-  return { success: false, message: 'No transcription to copy' };
-});
-
-ipcMain.handle('get-audio-devices', async () => {
-  return await getAudioDevices();
 });
 
 ipcMain.handle('get-server-status', () => currentStatusView());
@@ -568,15 +406,8 @@ ipcMain.handle('select-model', async (_event, id: string) => {
   await startBuiltinServer();
 });
 
-ipcMain.handle('session-start', async (_event, request?: unknown) => {
-  if (isRecording) {
-    throw new Error('Quick dictation is recording. Stop it before starting a session.');
-  }
-  return startSession(parseStartRequest(request));
-});
-
+ipcMain.handle('session-start', (_event, request?: unknown) => startSession(parseStartRequest(request)));
 ipcMain.handle('quick-note-toggle', () => toggleQuickNote());
-
 ipcMain.handle('session-pause', () => pauseSession());
 ipcMain.handle('session-resume', () => resumeSession());
 ipcMain.handle('session-stop', () => stopSession());

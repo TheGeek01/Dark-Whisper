@@ -6,21 +6,11 @@ function on<T>(channel: string, callback: (payload: T) => void): void {
 }
 
 const api: DarkWhisperApi = {
-  onTranscriptionComplete: (callback) => on('transcription-complete', callback),
   onError: (callback) => on('error', callback),
-  onRecordingStarted: (callback) => on('recording-started', () => callback()),
-  onRecordingStopped: (callback) => on('recording-stopped', () => callback()),
-  getStatus: (callback) => {
-    void ipcRenderer.invoke('get-status').then(callback);
-  },
-  startRecording: () => ipcRenderer.invoke('start-recording'),
-  stopRecording: () => ipcRenderer.invoke('stop-recording'),
-  copyToClipboard: () => ipcRenderer.invoke('copy-to-clipboard'),
   copyText: (text) => ipcRenderer.invoke('copy-text', text),
 
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
-  getAudioDevices: () => ipcRenderer.invoke('get-audio-devices'),
   getServerStatus: () => ipcRenderer.invoke('get-server-status'),
   restartServer: () => ipcRenderer.invoke('restart-server'),
   openServerLog: () => ipcRenderer.invoke('open-server-log'),
@@ -46,6 +36,7 @@ const api: DarkWhisperApi = {
   onSessionStatus: (callback) => on('session-status', callback),
   onSessionSegment: (callback) => on('session-segment', callback),
   onSessionBlock: (callback) => on('session-block', callback),
+  onSessionLevel: (callback) => on('session-level', callback),
 
   getLibraryTree: () => ipcRenderer.invoke('library-tree'),
   searchLibrary: (query) => ipcRenderer.invoke('library-search', query),

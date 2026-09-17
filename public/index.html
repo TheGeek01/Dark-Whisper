@@ -12,29 +12,23 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">Dark-Whisper</div>
-    <div class="server">
+    <div class="brand"><span class="i i-logo logo" aria-hidden="true"></span><span class="brand-name">Dark-Whisper</span></div>
+    <div class="status" id="serverStatus">
       <span class="dot" id="serverDot"></span>
-      <span id="serverText">Checking transcription server…</span>
+      <span id="serverText">Checking…</span>
       <button class="link" id="serverRestartBtn" hidden>Restart</button>
       <button class="link" id="serverLogBtn" hidden>Open log</button>
     </div>
-    <div class="dictation">
-      <button class="btn" id="dictateBtn">🎤 Dictate</button>
-      <span class="muted" id="dictateState">Ctrl+Q</span>
-      <span class="last" id="lastText"></span>
-      <button class="icon" id="copyLastBtn" title="Copy the last dictation" disabled>⧉</button>
+    <button class="btn quick" id="quickNoteBtn"><span class="i i-note" aria-hidden="true"></span><span id="quickNoteLabel">Quick Notes</span></button>
+    <button class="chip" id="modelChip" title="Speech models"><span id="modelChipText">…</span><span class="i i-chevron-down" aria-hidden="true"></span></button>
+    <button class="btn primary record" id="recordBtn"><span class="i i-mic" aria-hidden="true"></span><span id="recordLabel">Record</span></button>
+    <div class="run-controls">
+      <button class="btn ghost" id="stopBtn" disabled><span class="i i-stop" aria-hidden="true"></span><span>Stop</span></button>
+      <button class="btn ghost" id="pauseBtn" disabled><span class="i i-pause" id="pauseIcon" aria-hidden="true"></span><span id="pauseLabel">Pause</span></button>
     </div>
-    <div class="session-controls">
-      <button class="btn primary" id="sessionStartBtn">● Start session</button>
-      <button class="btn" id="sessionPauseBtn" hidden>⏸ Pause</button>
-      <button class="btn danger" id="sessionStopBtn" hidden>■ Stop</button>
-    </div>
-    <div class="tools">
-      <button class="icon" id="themeBtn" title="Switch theme"><span class="i i-moon" id="themeIcon" aria-hidden="true"></span></button>
-      <button class="icon" id="modelsBtn" title="Speech models">🧠</button>
-      <button class="icon" id="settingsBtn" title="Settings">⚙️</button>
-    </div>
+    <div class="spacer"></div>
+    <button class="icon" id="themeBtn" title="Switch theme"><span class="i i-moon" id="themeIcon" aria-hidden="true"></span></button>
+    <button class="icon" id="settingsBtn" title="Settings"><span class="i i-gear" aria-hidden="true"></span></button>
     <div class="caption-space" aria-hidden="true"></div>
   </header>
 
@@ -90,12 +84,10 @@
     <form method="dialog">
       <h2>Settings</h2>
 
-      <h3>Quick dictation</h3>
-      <label for="shortcutInput">Keyboard shortcut</label>
+      <h3>Quick notes</h3>
+      <label for="shortcutInput">Quick note shortcut</label>
       <input type="text" id="shortcutInput" placeholder="e.g. Ctrl+Q, Alt+R">
-      <label for="micDeviceInput">Microphone</label>
-      <select id="micDeviceInput"></select>
-      <label class="check"><input type="checkbox" id="autoMuteInput"> Mute system audio while recording</label>
+      <p class="hint">Quick notes go to the Quick Notes folder, one file per day.</p>
 
       <h3>Transcription server</h3>
       <label class="check"><input type="radio" name="serverMode" id="serverModeBuiltin" value="builtin"> Built-in</label>

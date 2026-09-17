@@ -44,8 +44,6 @@ export interface SettingsView {
   shortcut: string;
   apiUrl: string;
   apiToken: string;
-  autoMuteAudio: boolean;
-  micDevice: string;
   serverMode: ServerMode;
   modelId: string | null;
   forceCpu: boolean;
@@ -144,20 +142,12 @@ export interface LibraryChange {
 }
 
 export interface DarkWhisperApi {
-  // Quick dictation
-  onTranscriptionComplete(callback: (data: { transcription: string }) => void): void;
+  // Errors raised outside a renderer call (e.g. the Quick Note shortcut)
   onError(callback: (data: { message: string }) => void): void;
-  onRecordingStarted(callback: () => void): void;
-  onRecordingStopped(callback: () => void): void;
-  getStatus(callback: (data: { isRecording: boolean }) => void): void;
-  startRecording(): Promise<void>;
-  stopRecording(): Promise<void>;
-  copyToClipboard(): Promise<{ success: boolean; message?: string }>;
   copyText(text: string): Promise<void>;
   // Settings, server, models
   getSettings(): Promise<SettingsView>;
   saveSettings(settings: Partial<SettingsView>): Promise<{ success: boolean }>;
-  getAudioDevices(): Promise<Array<{ id: string; name: string }>>;
   getServerStatus(): Promise<ServerStatusView>;
   restartServer(): Promise<void>;
   openServerLog(): Promise<void>;
@@ -183,6 +173,7 @@ export interface DarkWhisperApi {
   onSessionStatus(callback: (view: SessionStatusView) => void): void;
   onSessionSegment(callback: (segment: SegmentEvent) => void): void;
   onSessionBlock(callback: (event: BlockEvent) => void): void;
+  onSessionLevel(callback: (level: number) => void): void;
   // Library
   getLibraryTree(): Promise<LibraryTree>;
   searchLibrary(query: string): Promise<LibrarySearchHit[]>;

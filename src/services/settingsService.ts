@@ -10,8 +10,6 @@ export interface Settings {
   shortcut: string;
   apiUrl: string;
   apiToken: string;
-  autoMuteAudio: boolean;
-  micDevice: string;
   serverMode: ServerMode;
   modelId: string | null;
   forceCpu: boolean;
@@ -40,8 +38,6 @@ const store = new Store({
     shortcut: 'Ctrl+Q',
     apiUrl: 'http://127.0.0.1:4444',
     apiToken: '',
-    autoMuteAudio: true,
-    micDevice: 'default',
     modelId: null,
     forceCpu: false,
     gpuFallbackVersion: null,
@@ -69,8 +65,6 @@ export function getSettings(): Settings {
     shortcut: storeAny.get('shortcut', 'Ctrl+Q'),
     apiUrl: storeAny.get('apiUrl', 'http://127.0.0.1:4444'),
     apiToken: storeAny.get('apiToken', ''),
-    autoMuteAudio: storeAny.get('autoMuteAudio', true),
-    micDevice: storeAny.get('micDevice', 'default'),
     serverMode: storeAny.get('serverMode', 'builtin'),
     modelId: storeAny.get('modelId', null),
     forceCpu: storeAny.get('forceCpu', false),

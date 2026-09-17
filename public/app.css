@@ -146,9 +146,6 @@ kbd { font: inherit; font-size: 11px; color: var(--muted); border: 1px solid var
   .run-controls .btn > span:not(.i) { display: none; }
   .status { max-width: 120px; }
 }
-/* Old header layout, removed by Task 8. */
-.dictation, .session-controls, .tools, .server { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.last { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; max-width: 200px; }
 
 /* == Workspace == */
 .workspace { flex: 1; display: grid; grid-template-columns: 280px minmax(0, 1fr) 330px; min-height: 0; }

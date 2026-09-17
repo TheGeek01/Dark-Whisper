@@ -1,6 +1,6 @@
 import { initDialogs } from './dialogs.js';
 import { initDocument } from './document.js';
-import { initHeader, setShortcut } from './header.js';
+import { initHeader, setSettings } from './header.js';
 import { initLibrary } from './library.js';
 import { initSessionPanel } from './sessionPanel.js';
 import { initTheme } from './theme.js';
@@ -15,7 +15,7 @@ function initSession(): void {
   window.api.getSessionStatus().then((status) => update({ session: applyStatus(getState().session, status) }), reportError);
 }
 
-initDialogs({ onSettingsSaved: (settings) => setShortcut(settings.shortcut) });
+initDialogs({ onSettingsSaved: setSettings });
 initTheme();
 initHeader();
 initLibrary();

@@ -1,110 +1,99 @@
-import type { ServerStatusView } from '../shared/api.js';
+import type { ServerStatusView, SettingsView } from '../shared/api.js';
 import { openModels, openSettings, startModelDownload } from './dialogs.js';
 import { byId } from './dom.js';
+import { headerStatus, modelChipText } from './headerModel.js';
 import { isSessionRunning } from './sessionModel.js';
 import { getState, subscribe } from './state.js';
 import { reportError, toast } from './toast.js';
 
 const RECOMMENDED_MODEL_ID = 'ggml-large-v3-turbo-q5_0.bin';
 
-// Main reports quick dictation as started → stopped → complete (or an error at any point).
-type DictationState = 'idle' | 'recording' | 'transcribing';
-let dictation: DictationState = 'idle';
-let shortcut = 'Ctrl+Q';
+let server: ServerStatusView | null = null;
+let settings: SettingsView | null = null;
 
-function renderServer(view: ServerStatusView): void {
-  byId('serverText').textContent = view.text;
-  byId('serverDot').className = `dot ${view.mode === 'external' ? 'external' : view.state}`;
-  const failed = view.mode === 'builtin' && view.state === 'error';
-  byId('serverRestartBtn').hidden = !failed;
-  byId('serverLogBtn').hidden = !failed;
-  byId('setupBanner').hidden = !(view.mode === 'builtin' && view.state === 'no-model');
-}
-
-function renderControls(): void {
+function render(): void {
   const { session, tree } = getState();
   const status = session.status;
   const running = isSessionRunning(status);
+  const quick = running && status?.kind === 'quick-note';
+  const noVault = tree?.exists === false;
 
-  const dictate = byId<HTMLButtonElement>('dictateBtn');
-  dictate.textContent = dictation === 'recording' ? '■ Stop dictation' : '🎤 Dictate';
-  dictate.disabled = running || dictation === 'transcribing';
-  byId('dictateState').textContent =
-    dictation === 'recording' ? 'Recording…' : dictation === 'transcribing' ? 'Transcribing…' : shortcut;
+  const line = headerStatus(server, status);
+  byId('serverText').textContent = line.text;
+  byId('serverDot').className = `dot ${line.tone}`;
+  byId('serverStatus').title = server?.text ?? '';
+  const failed = server?.mode === 'builtin' && server.state === 'error';
+  byId('serverRestartBtn').hidden = !failed;
+  byId('serverLogBtn').hidden = !failed;
+  byId('setupBanner').hidden = !(server?.mode === 'builtin' && server.state === 'no-model');
 
-  const start = byId<HTMLButtonElement>('sessionStartBtn');
-  start.hidden = running;
-  start.disabled = dictation !== 'idle' || tree?.exists === false;
-  const pause = byId<HTMLButtonElement>('sessionPauseBtn');
-  pause.hidden = !running || status?.state === 'error';
-  pause.textContent = status?.state === 'paused' ? '▶ Resume' : '⏸ Pause';
-  byId('sessionStopBtn').hidden = !running;
+  const shortcut = settings?.shortcut ?? 'Ctrl+Q';
+  const quickBtn = byId<HTMLButtonElement>('quickNoteBtn');
+  quickBtn.classList.toggle('active', quick);
+  quickBtn.disabled = (running && !quick) || noVault;
+  quickBtn.title = quick ? `Stop the quick note (${shortcut})` : `Start a quick note in today's file (${shortcut})`;
+  byId('quickNoteLabel').textContent = quick ? 'Stop quick note' : 'Quick Notes';
+
+  const record = byId<HTMLButtonElement>('recordBtn');
+  record.disabled = running || noVault;
+  record.classList.toggle('recording', running && !quick);
+  byId('recordLabel').textContent = running && !quick ? 'Recording' : 'Record';
+  const folder = getState().selectedFolder;
+  record.title = `Start a session in ${folder || 'the vault root'}`;
+
+  const paused = status?.state === 'paused';
+  const pause = byId<HTMLButtonElement>('pauseBtn');
+  pause.disabled = !running || status?.state === 'error' || status?.state === 'starting';
+  byId('pauseLabel').textContent = paused ? 'Resume' : 'Pause';
+  byId('pauseIcon').className = `i ${paused ? 'i-play' : 'i-pause'}`;
+  byId<HTMLButtonElement>('stopBtn').disabled = !running;
+
+  byId('modelChipText').textContent = settings ? modelChipText(settings) : '…';
 }
 
-export function setShortcut(value: string): void {
-  shortcut = value;
-  renderControls();
+export function setSettings(value: SettingsView): void {
+  settings = value;
+  render();
+}
+
+function refreshSettings(): void {
+  window.api.getSettings().then(setSettings, reportError);
 }
 
 export function initHeader(): void {
-  window.api.onServerStatus(renderServer);
-  window.api.getServerStatus().then(renderServer, reportError);
+  window.api.onServerStatus((view) => {
+    server = view;
+    // A model change restarts the server: the chip follows.
+    refreshSettings();
+    render();
+  });
+  window.api.getServerStatus().then((view) => {
+    server = view;
+    render();
+  }, reportError);
+  window.api.onError(({ message }) => toast(message, 'error'));
+  refreshSettings();
+
   byId('serverRestartBtn').addEventListener('click', () => window.api.restartServer().catch(reportError));
   byId('serverLogBtn').addEventListener('click', () => window.api.openServerLog().catch(reportError));
   byId('setupDownloadBtn').addEventListener('click', () => {
     openModels();
     startModelDownload(RECOMMENDED_MODEL_ID);
   });
-
-  window.api.onRecordingStarted(() => {
-    dictation = 'recording';
-    renderControls();
-  });
-  window.api.onRecordingStopped(() => {
-    dictation = 'transcribing';
-    renderControls();
-  });
-  window.api.onTranscriptionComplete(({ transcription }) => {
-    dictation = 'idle';
-    const last = byId('lastText');
-    last.textContent = transcription;
-    last.title = transcription;
-    byId<HTMLButtonElement>('copyLastBtn').disabled = false;
-    renderControls();
-  });
-  window.api.onError(({ message }) => {
-    dictation = 'idle';
-    toast(message, 'error');
-    renderControls();
-  });
-  window.api.getStatus(({ isRecording }) => {
-    dictation = isRecording ? 'recording' : 'idle';
-    renderControls();
-  });
-  window.api.getSettings().then((settings) => setShortcut(settings.shortcut), reportError);
-
-  byId('dictateBtn').addEventListener('click', () => {
-    const action = dictation === 'recording' ? window.api.stopRecording() : window.api.startRecording();
-    action.catch(reportError);
-  });
-  byId('copyLastBtn').addEventListener('click', async () => {
-    const result = await window.api.copyToClipboard();
-    if (result.success) toast('Copied');
-    else toast(result.message ?? 'Could not copy', 'error');
-  });
-  byId('sessionStartBtn').addEventListener('click', () => {
+  byId('quickNoteBtn').addEventListener('click', () => window.api.toggleQuickNote().catch(reportError));
+  byId('recordBtn').addEventListener('click', () => {
     window.api.startSession({ kind: 'session', folder: getState().selectedFolder }).catch(reportError);
   });
-  byId('sessionPauseBtn').addEventListener('click', () => {
+  byId('pauseBtn').addEventListener('click', () => {
     const paused = getState().session.status?.state === 'paused';
     (paused ? window.api.resumeSession() : window.api.pauseSession()).catch(reportError);
   });
-  byId('sessionStopBtn').addEventListener('click', () => window.api.stopSession().catch(reportError));
-  byId('modelsBtn').addEventListener('click', openModels);
+  byId('stopBtn').addEventListener('click', () => window.api.stopSession().catch(reportError));
+  byId('modelChip').addEventListener('click', openModels);
   byId('settingsBtn').addEventListener('click', () => openSettings().catch(reportError));
 
   subscribe((_state, changed) => {
-    if (changed.has('session') || changed.has('tree')) renderControls();
+    if (changed.has('session') || changed.has('tree') || changed.has('selectedFolder')) render();
   });
-  renderControls();
+  render();
 }

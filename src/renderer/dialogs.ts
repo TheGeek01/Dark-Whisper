@@ -67,8 +67,6 @@ let onSettingsSaved: (settings: SettingsView) => void = () => undefined;
 function settingsFields() {
   return {
     shortcut: byId<HTMLInputElement>('shortcutInput'),
-    micDevice: byId<HTMLSelectElement>('micDeviceInput'),
-    autoMute: byId<HTMLInputElement>('autoMuteInput'),
     builtin: byId<HTMLInputElement>('serverModeBuiltin'),
     external: byId<HTMLInputElement>('serverModeExternal'),
     forceCpu: byId<HTMLInputElement>('forceCpuInput'),
@@ -92,18 +90,6 @@ function syncServerMode(): void {
   byId('builtinOptions').hidden = external;
 }
 
-async function fillMicDevices(selected: string): Promise<void> {
-  const select = byId<HTMLSelectElement>('micDeviceInput');
-  try {
-    const devices = await window.api.getAudioDevices();
-    select.replaceChildren(...devices.map((device) => new Option(device.name, device.id)));
-  } catch (error) {
-    console.error('Failed to load audio devices:', error);
-    select.replaceChildren(new Option('System Default Microphone', 'default'));
-  }
-  select.value = selected || 'default';
-}
-
 // Session microphones come from the live engine; keep a saved name even when it is not listed.
 async function fillCaptureDevices(selected: string): Promise<void> {
   const select = byId<HTMLSelectElement>('captureDeviceInput');
@@ -117,7 +103,6 @@ export async function openSettings(): Promise<void> {
   const f = settingsFields();
   const settings = await window.api.getSettings();
   f.shortcut.value = settings.shortcut;
-  f.autoMute.checked = settings.autoMuteAudio !== false;
   f.builtin.checked = settings.serverMode !== 'external';
   f.external.checked = settings.serverMode === 'external';
   f.forceCpu.checked = settings.forceCpu;
@@ -136,7 +121,7 @@ export async function openSettings(): Promise<void> {
   const saveBtn = byId<HTMLButtonElement>('settingsSaveBtn');
   saveBtn.disabled = true;
   try {
-    await Promise.all([fillMicDevices(settings.micDevice), fillCaptureDevices(settings.captureDeviceName)]);
+    await fillCaptureDevices(settings.captureDeviceName);
   } finally {
     saveBtn.disabled = false;
   }
@@ -147,8 +132,6 @@ async function saveSettingsFromDialog(): Promise<void> {
   try {
     await window.api.saveSettings({
       shortcut: f.shortcut.value.trim() || 'Ctrl+Q',
-      micDevice: f.micDevice.value || 'default',
-      autoMuteAudio: f.autoMute.checked,
       serverMode: f.external.checked ? 'external' : 'builtin',
       forceCpu: f.forceCpu.checked,
       apiUrl: f.apiUrl.value.trim() || 'http://127.0.0.1:4444',
@@ -164,7 +147,7 @@ async function saveSettingsFromDialog(): Promise<void> {
       keepSessionAudio: f.keepAudio.checked,
     });
     byId<HTMLDialogElement>('settingsDialog').close();
-    toast('Settings saved. Shortcut changes apply after a restart.');
+    toast('Settings saved.');
     onSettingsSaved(await window.api.getSettings());
   } catch (error) {
     reportError(error);
