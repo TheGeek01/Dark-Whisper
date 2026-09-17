@@ -1,4 +1,4 @@
-import { cleanIpcError, formatBytes, formatClock, formatDate } from '../renderer/format';
+import { cleanIpcError, formatBytes, formatClock, formatDate, relativeTime } from '../renderer/format';
 
 describe('formatClock', () => {
   it('formats minutes and seconds, adding hours only when needed', () => {
@@ -32,5 +32,18 @@ describe('cleanIpcError', () => {
     const error = new Error("Error invoking remote method 'session-start': Error: A session is already recording");
     expect(cleanIpcError(error)).toBe('A session is already recording');
     expect(cleanIpcError('plain')).toBe('plain');
+  });
+});
+
+describe('relativeTime', () => {
+  const now = Date.UTC(2026, 8, 16, 12, 0, 0);
+  it('rounds down to the largest whole unit', () => {
+    expect(relativeTime(now - 20_000, now)).toBe('just now');
+    expect(relativeTime(now + 5_000, now)).toBe('just now');
+    expect(relativeTime(now - 2 * 60_000, now)).toBe('2m ago');
+    expect(relativeTime(now - 59 * 60_000, now)).toBe('59m ago');
+    expect(relativeTime(now - 60 * 60_000, now)).toBe('1h ago');
+    expect(relativeTime(now - 23 * 3_600_000, now)).toBe('23h ago');
+    expect(relativeTime(now - 49 * 3_600_000, now)).toBe('2d ago');
   });
 });

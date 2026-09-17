@@ -39,11 +39,20 @@
 
   <main class="workspace" id="workspace">
     <aside class="library" aria-label="Library">
-      <input type="search" id="librarySearch" placeholder="Search the vault (Ctrl+F)">
+      <div class="search">
+        <span class="i i-search" aria-hidden="true"></span>
+        <input type="search" id="librarySearch" placeholder="Search vault…" aria-label="Search the vault">
+        <kbd>Ctrl+K</kbd>
+      </div>
       <div class="library-body" id="libraryBody" tabindex="0" role="tree"></div>
       <div class="library-footer">
-        <button class="link" id="newFolderBtn">+ folder</button>
-        <span class="muted" id="libraryTarget"></span>
+        <button class="btn outline wide" id="newSessionBtn"><span class="i i-plus" aria-hidden="true"></span>New Session</button>
+        <div class="footer-line">
+          <span class="i i-folder" aria-hidden="true"></span>
+          <span id="docCount"></span>
+          <span class="spacer"></span>
+          <button class="icon" id="vaultMenuBtn" title="Vault actions"><span class="i i-more" aria-hidden="true"></span></button>
+        </div>
       </div>
     </aside>
 

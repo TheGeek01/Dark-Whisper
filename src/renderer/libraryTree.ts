@@ -90,3 +90,36 @@ export function expandTo(expanded: ReadonlySet<string>, folder: string): Set<str
   for (let i = 1; i <= parts.length; i++) next.add(parts.slice(0, i).join('/'));
   return next;
 }
+
+export const QUICK_NOTES_FOLDER = 'Quick Notes';
+
+// Documents per folder, counting subfolders; '' holds the whole vault.
+export function folderCounts(tree: LibraryTree): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const doc of tree.documents) {
+    const parts = doc.folder === '' ? [] : doc.folder.split('/');
+    for (let i = 0; i <= parts.length; i++) {
+      const key = parts.slice(0, i).join('/');
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
+export function recentDocuments(tree: LibraryTree, limit = 5): LibraryDocument[] {
+  return [...tree.documents].sort((a, b) => b.mtimeMs - a.mtimeMs || a.file.localeCompare(b.file)).slice(0, limit);
+}
+
+// Quick Notes is always the first folder under the vault, even before it exists (spec §4.2).
+export function pinQuickNotes(root: FolderView): FolderView {
+  const existing = root.folders.find((folder) => folder.path === QUICK_NOTES_FOLDER);
+  const quick: FolderView = existing ?? {
+    path: QUICK_NOTES_FOLDER,
+    name: QUICK_NOTES_FOLDER,
+    depth: 1,
+    expanded: false,
+    folders: [],
+    documents: [],
+  };
+  return { ...root, folders: [quick, ...root.folders.filter((folder) => folder !== existing)] };
+}

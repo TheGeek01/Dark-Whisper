@@ -14,3 +14,10 @@ export function el<K extends keyof HTMLElementTagNameMap>(
   if (text !== undefined) node.textContent = text;
   return node;
 }
+
+// A CSS mask icon from public/app.css (.i-<name>).
+export function icon(name: string, className = ''): HTMLSpanElement {
+  const node = el('span', `i i-${name}${className ? ` ${className}` : ''}`);
+  node.setAttribute('aria-hidden', 'true');
+  return node;
+}

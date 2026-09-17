@@ -1,14 +1,27 @@
 import type { LibraryDocument, LibrarySearchHit } from '../shared/api.js';
 import { ask, confirmAction } from './dialogs.js';
-import { byId, el } from './dom.js';
-import { formatDate } from './format.js';
-import { buildTree, expandTo, folderChoices, parentFolder, visibleRows, type FolderView, type VisibleRow } from './libraryTree.js';
+import { byId, el, icon } from './dom.js';
+import { formatDate, relativeTime } from './format.js';
+import {
+  buildTree,
+  expandTo,
+  folderChoices,
+  folderCounts,
+  parentFolder,
+  pinQuickNotes,
+  QUICK_NOTES_FOLDER,
+  recentDocuments,
+  visibleRows,
+  type FolderView,
+  type VisibleRow,
+} from './libraryTree.js';
 import { isSessionRunning } from './sessionModel.js';
 import { getState, subscribe, update, type AppState } from './state.js';
 import { reportError, toast } from './toast.js';
 
 const LIBRARY_KEYS = new Set<keyof AppState>(['tree', 'expanded', 'selectedFile', 'selectedFolder', 'search']);
-const INDENT_PX = 14;
+const INDENT_PX = 16;
+const RECENT_REFRESH_MS = 60_000;
 
 let searchHits: LibrarySearchHit[] | null = null;
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -23,6 +36,7 @@ interface MenuAction {
 
 const rowKey = (row: VisibleRow) => (row.kind === 'folder' ? `folder:${row.path}` : `doc:${row.file}`);
 
+// The document a session or quick note is writing right now.
 export function recordingFile(): string | null {
   const status = getState().session.status;
   return status && isSessionRunning(status) ? status.documentFile : null;
@@ -54,6 +68,14 @@ function selectFolder(path: string, expand?: boolean): void {
   if (expand === false) expanded.delete(path);
   focusedRow = `folder:${path}`;
   update({ selectedFolder: path, expanded });
+}
+
+// The tree as shown: Quick Notes is pinned unless a title filter is active.
+function libraryRoot(): FolderView | null {
+  const { tree, expanded, search } = getState();
+  if (!tree) return null;
+  const root = buildTree(tree, expanded, search);
+  return search.trim() === '' ? pinQuickNotes(root) : root;
 }
 
 // ---- Document actions (also used by the document pane)
@@ -123,7 +145,7 @@ async function chooseVault(): Promise<void> {
   }
 }
 
-// ---- Row menu
+// ---- Menus
 
 function hideMenu(): void {
   byId('rowMenu').hidden = true;
@@ -165,34 +187,58 @@ function showDocumentMenu(doc: LibraryDocument, anchor: HTMLElement): void {
   showMenu(anchor, actions);
 }
 
+function showVaultMenu(): void {
+  showMenu(byId('vaultMenuBtn'), [
+    { label: 'New folder…', run: () => newFolder() },
+    { label: 'Change vault…', run: () => chooseVault() },
+    { label: 'Show vault in Explorer', run: () => window.api.openVault() },
+  ]);
+}
+
 // ---- Rendering
 
-function folderRow(folder: FolderView): HTMLElement {
+function folderRow(folder: FolderView, counts: ReadonlyMap<string, number>): HTMLElement {
   const { selectedFolder } = getState();
   const key = `folder:${folder.path}`;
-  const row = el('div', 'row folder');
-  row.style.paddingLeft = `${8 + folder.depth * INDENT_PX}px`;
+  const root = folder.depth === 0;
+  const row = el('div', root ? 'row folder root' : 'row folder');
+  if (!root) row.style.paddingLeft = `${10 + (folder.depth - 1) * INDENT_PX}px`;
   row.dataset.key = key;
   row.setAttribute('role', 'treeitem');
   row.setAttribute('aria-expanded', String(folder.expanded));
   row.classList.toggle('target', selectedFolder === folder.path);
   row.classList.toggle('focused', focusedRow === key);
-  const twisty = folder.depth === 0 ? '' : folder.expanded ? '▾' : '▸';
-  row.append(el('span', 'twisty', twisty), el('span', 'name', folder.depth === 0 ? 'Vault' : folder.name));
-  row.addEventListener('click', () => selectFolder(folder.path, folder.depth === 0 ? undefined : !folder.expanded));
+  if (root) {
+    row.title = 'New sessions go to the vault root';
+    row.append(icon('chevron-down', 'twisty'), el('span', 'name', 'Vault'));
+  } else {
+    const hasChildren = folder.folders.length > 0 || folder.documents.length > 0;
+    const quick = folder.path === QUICK_NOTES_FOLDER;
+    row.append(
+      icon(folder.expanded ? 'chevron-down' : 'chevron-right', hasChildren ? 'twisty' : 'twisty none'),
+      quick ? icon('note', 'kind quick') : icon('folder', 'kind'),
+      el('span', 'name', folder.name),
+      el('span', 'count', String(counts.get(folder.path) ?? 0)),
+    );
+  }
+  row.addEventListener('click', () => selectFolder(folder.path, root ? undefined : !folder.expanded));
   return row;
 }
 
 function documentRow(doc: LibraryDocument, depth: number): HTMLElement {
   const key = `doc:${doc.file}`;
   const row = el('div', 'row doc');
-  row.style.paddingLeft = `${8 + depth * INDENT_PX}px`;
+  row.style.paddingLeft = `${10 + Math.max(0, depth - 1) * INDENT_PX}px`;
   row.dataset.key = key;
   row.setAttribute('role', 'treeitem');
   row.classList.toggle('selected', getState().selectedFile === doc.file);
   row.classList.toggle('focused', focusedRow === key);
+  row.append(icon('file', 'kind'));
+  const name = el('span', 'name', doc.title);
+  name.title = doc.file;
+  row.append(name);
   if (doc.file === recordingFile()) {
-    const dot = el('span', 'rec-dot', '●');
+    const dot = el('span', 'dot rec rec-dot');
     dot.title = 'Recording';
     row.append(dot);
   }
@@ -201,15 +247,14 @@ function documentRow(doc: LibraryDocument, depth: number): HTMLElement {
     warn.title = 'This file could not be read';
     row.append(warn);
   }
-  const name = el('span', 'name', doc.title);
-  name.title = doc.file;
-  const menu = el('button', 'icon row-menu', '⋯');
+  const menu = el('button', 'icon row-menu');
   menu.title = 'Actions';
+  menu.append(icon('more'));
   menu.addEventListener('click', (event) => {
     event.stopPropagation();
     showDocumentMenu(doc, menu);
   });
-  row.append(name, el('span', 'date', formatDate(doc.created, doc.mtimeMs)), menu);
+  row.append(el('span', 'date', formatDate(doc.created, doc.mtimeMs)), menu);
   row.addEventListener('click', () => openDocument(doc.file));
   row.addEventListener('contextmenu', (event) => {
     event.preventDefault();
@@ -218,12 +263,31 @@ function documentRow(doc: LibraryDocument, depth: number): HTMLElement {
   return row;
 }
 
-function folderRows(folder: FolderView): HTMLElement[] {
-  const rows = [folderRow(folder)];
+function folderRows(folder: FolderView, counts: ReadonlyMap<string, number>): HTMLElement[] {
+  const rows = [folderRow(folder, counts)];
   if (!folder.expanded) return rows;
-  for (const child of folder.folders) rows.push(...folderRows(child));
+  for (const child of folder.folders) rows.push(...folderRows(child, counts));
   for (const doc of folder.documents) rows.push(documentRow(doc, folder.depth + 1));
   return rows;
+}
+
+function recentRows(): HTMLElement[] {
+  const { tree, selectedFile } = getState();
+  if (!tree || tree.documents.length === 0) return [];
+  const now = Date.now();
+  const title = el('div', 'section-title');
+  title.append(icon('clock'), el('span', '', 'Recent'));
+  const rows = recentDocuments(tree).map((doc) => {
+    const row = el('div', 'row recent');
+    row.dataset.recent = doc.file;
+    row.classList.toggle('selected', selectedFile === doc.file);
+    const name = el('span', 'name', doc.title);
+    name.title = doc.file;
+    row.append(icon('file', 'kind'), name, el('span', 'date', relativeTime(doc.mtimeMs, now)));
+    row.addEventListener('click', () => openDocument(doc.file));
+    return row;
+  });
+  return [title, ...rows];
 }
 
 function hitRows(hits: LibrarySearchHit[]): HTMLElement[] {
@@ -237,10 +301,19 @@ function hitRows(hits: LibrarySearchHit[]): HTMLElement[] {
   });
 }
 
+function renderFooter(): void {
+  const { tree, selectedFolder } = getState();
+  const count = tree?.documents.length ?? 0;
+  byId('docCount').textContent = `${count} ${count === 1 ? 'document' : 'documents'}`;
+  const button = byId<HTMLButtonElement>('newSessionBtn');
+  button.title = `Start a session in ${selectedFolder || 'the vault root'}`;
+  button.disabled = recordingFile() !== null || tree?.exists === false;
+}
+
 function renderLibrary(): void {
   const body = byId('libraryBody');
-  const { tree, expanded, search, selectedFolder } = getState();
-  byId('libraryTarget').textContent = selectedFolder ? `New sessions → ${selectedFolder}` : '';
+  const { tree, search } = getState();
+  renderFooter();
   if (!tree) {
     body.replaceChildren(el('p', 'muted pad', 'Loading…'));
     return;
@@ -255,13 +328,15 @@ function renderLibrary(): void {
     body.replaceChildren(...hitRows(searchHits));
     return;
   }
-  const root = buildTree(tree, expanded, search);
-  body.replaceChildren(...folderRows(root));
+  const root = libraryRoot() as FolderView;
+  body.replaceChildren(...folderRows(root, folderCounts(tree)));
+  const filtering = search.trim() !== '';
   if (tree.documents.length === 0) {
-    body.append(el('p', 'muted pad', 'No documents yet. Start a session to begin.'));
-  } else if (search.trim() !== '' && root.folders.length === 0 && root.documents.length === 0) {
+    body.append(el('p', 'muted pad', 'No documents yet. Start a session or a quick note to begin.'));
+  } else if (filtering && root.folders.length === 0 && root.documents.length === 0) {
     body.append(el('p', 'muted pad', 'No matches'));
   }
+  if (!filtering) body.append(...recentRows());
 }
 
 // ---- Search
@@ -295,9 +370,10 @@ function onSearchInput(): void {
 // ---- Keyboard
 
 function onTreeKey(event: KeyboardEvent): void {
-  const { tree, expanded, search } = getState();
-  if (!tree || searchHits) return;
-  const rows = visibleRows(buildTree(tree, expanded, search));
+  const { tree } = getState();
+  const root = libraryRoot();
+  if (!tree || !root || searchHits) return;
+  const rows = visibleRows(root);
   const keys = rows.map(rowKey);
   const index = focusedRow ? keys.indexOf(focusedRow) : -1;
   const row = rows[index];
@@ -356,11 +432,18 @@ export function initLibrary(): void {
     }
   });
   byId('libraryBody').addEventListener('keydown', onTreeKey);
-  byId('newFolderBtn').addEventListener('click', () => void newFolder());
+  byId('newSessionBtn').addEventListener('click', () => {
+    window.api.startSession({ kind: 'session', folder: getState().selectedFolder }).catch(reportError);
+  });
+  byId('vaultMenuBtn').addEventListener('click', (event) => {
+    event.stopPropagation();
+    showVaultMenu();
+  });
   document.addEventListener('click', hideMenu);
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') hideMenu();
-    if (event.ctrlKey && event.key.toLowerCase() === 'f') {
+    const key = event.key.toLowerCase();
+    if (event.ctrlKey && (key === 'f' || key === 'k')) {
       event.preventDefault();
       search.focus();
       search.select();
@@ -372,16 +455,21 @@ export function initLibrary(): void {
     if (paths.length === 0) update({ selectedFolder: '', expanded: new Set() });
     void reloadTree();
   });
+  // "2m ago" goes stale.
+  setInterval(() => {
+    if (!searchHits && getState().search.trim() === '') renderLibrary();
+  }, RECENT_REFRESH_MS);
 
   subscribe((_state, changed) => {
     const recording = recordingFile();
     const recordingChanged = recording !== lastRecording;
     lastRecording = recording;
     if (recordingChanged && recording) {
-      // A new session's document: show it (the watcher may not have reported it yet).
+      // A new run's document: show it (the watcher may not have reported it yet).
       void reloadTree().then(() => openDocument(recording));
     }
     if (recordingChanged || [...changed].some((key) => LIBRARY_KEYS.has(key))) renderLibrary();
+    else if (changed.has('session')) renderFooter();
   });
 
   renderLibrary();
