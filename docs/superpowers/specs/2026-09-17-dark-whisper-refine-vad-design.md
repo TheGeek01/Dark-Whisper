@@ -50,15 +50,17 @@ b5130's `whisper-server` already supports `--vad` / `-vm` (no whisper.cpp upgrad
   ```
 - `npm run whisper:fetch` also downloads it into `resources/whisper/vad/<file>` and checks size and hash.
 - CI (`build-whisper`) downloads and checks it into `whisper-dist/vad/`, so the uploaded artifact (and the installer, via the existing `extraResources` rule for `resources/whisper`) contains it.
-- **Install into the models folder.** whisper-server decodes path arguments as UTF-8 but receives them in the ANSI code page, which breaks absolute paths under non-ASCII profiles (the reason models are passed by file name with `cwd` set). At start-up, before the server starts, the app copies the bundled file to `%APPDATA%\Dark-Whisper\models\<file>` when that copy is missing or its size differs, writing to `<file>.part` and renaming. The server receives the VAD model as a path relative to its `cwd` (the chosen model's directory), e.g. `ggml-silero-v6.2.0.bin` or `..\ggml-silero-v6.2.0.bin` for a custom model under `models\custom\`. Both stay inside the models tree, so they are ASCII.
+- **Install into the models folder.** whisper-server decodes path arguments as UTF-8 but receives them in the ANSI code page, which breaks absolute paths under non-ASCII profiles (the reason models are passed by file name with `cwd` set). At start-up, before the server starts, the app copies the bundled file to `%APPDATA%\Dark-Whisper\models\<file>` when that copy is missing or does not match the pin, writing to `<file>.part` and renaming. The server receives the VAD model as a path relative to its `cwd` (the chosen model's directory), e.g. `ggml-silero-v6.2.0.bin` or `..\ggml-silero-v6.2.0.bin` for a custom model under `models\custom\`. Both stay inside the models tree, so they are ASCII.
 - The VAD file is not a speech model: `modelManager` must not list it (its catalog is by id; the file name does not match a catalog entry, and custom models live under `custom\`, so no change is expected — the plan verifies it with a test).
 
 ## 4. Server start-up
 
 - `whisperServer.start(modelId, modelPath, opts)` gains `opts.vadModelPath: string | null`. When set, the launch arguments add `--vad -vm <relative path>`.
 - `whisperRuntime` passes the installed copy's path when `refineVad` is on, the server mode is built-in and the copy exists; otherwise `null`, with one log line saying why VAD is off.
-- `classifyServerLine` learns `whisper_vad_init_from_file_with_params: loading VAD model` → event `vad-loaded`, and `failed to initialize VAD` / `failed to load VAD model` style lines → `vad-failed`. The plan confirms the exact failure strings against b5130 by starting the server with a corrupt VAD file.
-- `ServerStatus` gains `vad: boolean`: true once ready if `vad-loaded` was seen. A VAD load failure is logged and the server is restarted once without VAD (like the GPU fallback), so a bad VAD file never blocks transcription.
+- b5130 loads the VAD model **on every transcription request**, not at start-up (probe, 2026-09-17). A missing or corrupt VAD file does not stop the server from becoming ready, but every request then fails with HTTP 500 and the log line `whisper_vad: failed to initialize VAD context`. Therefore:
+  - the app only passes a VAD file whose size and SHA256 match the pin (checked when installing it and at every server start);
+  - `ServerStatus` gains `vad: boolean`, true when the running process was started with `--vad`;
+  - `classifyServerLine` maps `failed to initialize VAD context` → event `vad-failed`. On that event the supervisor turns VAD off for this model and relaunches the server without it (logged), so a bad VAD file costs at most one failed request.
 - The status view text keeps its form; its tooltip (`ServerStatusView.text` is already the tooltip) appends `, VAD` when on: `Ready — large-v3-turbo-q5_0 (GPU, VAD)`.
 
 ## 5. Refinement results
@@ -84,15 +86,16 @@ b5130's `whisper-server` already supports `--vad` / `-vm` (no whisper.cpp upgrad
 |---|---|
 | Bundled VAD file missing (dev without `whisper:fetch`) | Server starts without VAD; log line |
 | Copy into models folder fails | Server starts without VAD; log line |
-| Server fails to load the VAD model | Restart once without VAD; log line; `vad: false` |
+| Bundled or installed VAD file fails the hash check | Server starts without VAD; log line |
+| Server fails to load the VAD model on a request | That request fails; server relaunches without VAD; log line; `vad: false` |
 | External API mode | No VAD; empty results keep live text |
 | Paragraph edited before its empty result arrives | Not removed (`skipped-edited`) |
 
 ## 8. Testing
 
 Unit tests (written first):
-- `whisperServer`: launch arguments with and without `vadModelPath` (relative to the model directory, including a model under `custom\`); `vad` status from the log; the VAD-failure fallback restarts without `--vad`.
-- `serverOutput`: the VAD log lines.
+- `whisperServer`: launch arguments with and without `vadModelPath` (relative to the model directory, including a model under `custom\`); `vad` status follows the launch; a `vad-failed` log line relaunches without `--vad`.
+- `serverOutput`: the VAD failure line.
 - `serverGate`/status text: `, VAD` in the tooltip.
 - `documentStore.removeBlock`: removes exactly one block (marker, clock line, text, trailing blank), refuses an edited block, reports a missing one, keeps CRLF files intact.
 - `sessionService.applyRefinement` with and without VAD; `blockRefiner` reports `removed`.
