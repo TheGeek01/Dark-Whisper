@@ -6,7 +6,8 @@ import * as path from 'path';
 import { AudioEntry, BYTES_PER_SECOND, WAV_HEADER_BYTES, slicesForRange, wavHeader } from './blockMath';
 import { RefineEvent, RefineQueue, shouldRefineDuringRecording } from './blockRefiner';
 import { DocumentStore, Frontmatter } from './documentStore';
-import { GuardedStore } from './guardedStore';
+import type { GuardedStore } from './guardedStore';
+import { GuardRegistry } from './guardRegistry';
 import { MicMuteService } from './micMuteService';
 import { buildShimArgs, parseMuteOutput } from './micMuteOutput';
 import { SilenceTracker } from './audioLevel';
@@ -49,6 +50,8 @@ interface SessionContext {
   service: SessionService;
   queue: RefineQueue;
   store: GuardedStore;
+  // Stops listening to the shared guard and releases it; safe to call more than once.
+  releaseGuard(): void;
   stopped: boolean;
   audioRemoved: boolean;
   pausedByApp: boolean;
@@ -68,6 +71,7 @@ const blockListeners = new Set<(event: BlockEvent) => void>();
 // App-wide notices (e.g. the vault watcher falling back to polling), newest first.
 const notices: string[] = [];
 const finishing = new Set<SessionContext>();
+const guards = new GuardRegistry();
 
 let current: SessionContext | null = null;
 let statusMessage: string | undefined;
@@ -171,9 +175,8 @@ export function documentMoved(from: string, to: string): void {
     if (!samePath(ctx.documentPath, from)) continue;
     ctx.documentPath = to;
     ctx.service.setDocumentPath(to);
-    // A rename rewrites the title in the frontmatter; that is our own write, not an outside edit.
-    ctx.store.noteWrite(to);
   }
+  guards.moved(from, to);
   emit();
 }
 
@@ -292,6 +295,7 @@ async function settle(ctx: SessionContext): Promise<void> {
   if (ctx.queue.pending() > 0 && !abandoned) return;
   ctx.audioRemoved = true;
   finishing.delete(ctx);
+  ctx.releaseGuard();
   if (!getSettings().keepSessionAudio) {
     await removeSessionAudio(ctx.id);
   }
@@ -386,7 +390,8 @@ export async function startSession(folder = ''): Promise<SessionStatusView> {
   let ctx: SessionContext | null = null;
   // An outside change that touched no block (a line-ending resave, the frontmatter) is not worth a
   // warning.
-  const store = new GuardedStore(documents, (changed) => {
+  const store = guards.acquire(documentPath, documents);
+  const stopListening = store.onOutsideEdit((changed) => {
     if (!ctx) return;
     ctx.service.noteOutsideEdit(changed);
     if (changed.length > 0 && !ctx.outsideEditNoticed) {
@@ -395,7 +400,7 @@ export async function startSession(folder = ''): Promise<SessionStatusView> {
       emit();
     }
   });
-  store.noteWrite(documentPath);
+  let guardReleased = false;
 
   const service = new SessionService({
     store,
@@ -437,6 +442,12 @@ export async function startSession(folder = ''): Promise<SessionStatusView> {
     service,
     queue,
     store,
+    releaseGuard: () => {
+      if (guardReleased) return;
+      guardReleased = true;
+      stopListening();
+      guards.release(ctx?.documentPath ?? documentPath);
+    },
     stopped: false,
     audioRemoved: false,
     pausedByApp: false,

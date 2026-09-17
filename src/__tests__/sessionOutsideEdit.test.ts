@@ -4,6 +4,8 @@ import * as path from 'path';
 import { DocumentStore, Frontmatter } from '../services/documentStore';
 import { SilenceTracker } from '../services/audioLevel';
 import { GuardedStore } from '../services/guardedStore';
+import { GuardRegistry } from '../services/guardRegistry';
+import { prepareQuickNote } from '../services/quickNotes';
 import { RefineJob, SessionBlockEvent, SessionService } from '../services/sessionService';
 
 // A real document store, guard and session wired together the way sessionRuntime does it.
@@ -21,6 +23,16 @@ const FM: Frontmatter = {
 
 const CLOCK = '**2026-09-16 14:32**';
 
+const DETAILS: Omit<Frontmatter, 'title'> = {
+  created: FM.created,
+  updated: FM.updated,
+  duration: 0,
+  language: FM.language,
+  liveModel: FM.liveModel,
+  refineModel: FM.refineModel,
+  app: FM.app,
+};
+
 function wire() {
   const vault = fs.mkdtempSync(path.join(os.tmpdir(), 'dw-outside-edit-'));
   const documents = new DocumentStore(vault);
@@ -29,11 +41,12 @@ function wire() {
   const events: SessionBlockEvent[] = [];
   const reports: number[][] = [];
   const holder: { service: SessionService | null } = { service: null };
-  const store = new GuardedStore(documents, (changed) => {
+  const store = new GuardedStore(documents);
+  store.noteWrite(file);
+  store.onOutsideEdit((changed) => {
     reports.push(changed);
     holder.service?.noteOutsideEdit(changed);
   });
-  store.noteWrite(file);
   const service = new SessionService({
     store,
     enqueueRefine: (job) => jobs.push(job),
@@ -114,5 +127,66 @@ describe('outside edits during a session', () => {
 
     expect(w.reports).toEqual([[]]);
     expect(w.jobs.map((job) => job.blockIndex)).toEqual([1]);
+  });
+});
+
+describe('two quick-note runs on one day file', () => {
+  it('share the guard, so only a real outside edit is reported and only its paragraph is skipped', () => {
+    const vault = fs.mkdtempSync(path.join(os.tmpdir(), 'dw-two-runs-'));
+    const documents = new DocumentStore(vault);
+    const registry = new GuardRegistry();
+    const day = new Date(2026, 8, 16, 14, 32);
+
+    function startRun(id: string) {
+      const target = prepareQuickNote(documents, vault, day, DETAILS);
+      const store = registry.acquire(target.documentPath, documents);
+      const jobs: RefineJob[] = [];
+      const reports: number[][] = [];
+      const service = new SessionService({
+        store,
+        enqueueRefine: (job) => jobs.push(job),
+        blockMinutes: 10,
+        silenceGapSec: 5,
+        silence: new SilenceTracker(),
+        now: () => day,
+      });
+      store.onOutsideEdit((changed) => {
+        reports.push(changed);
+        service.noteOutsideEdit(changed);
+      });
+      service.begin({
+        id,
+        documentPath: target.documentPath,
+        firstBlockIndex: target.firstBlockIndex,
+        baseDurationSec: target.baseDurationSec,
+      });
+      return { service, jobs, reports, file: target.documentPath };
+    }
+
+    const first = startRun('a');
+    first.service.segment({ text: 'alpha', atMs: 2_000 });
+    first.service.end(3_000);
+    expect(first.jobs.map((job) => job.blockIndex)).toEqual([1]);
+
+    const second = startRun('b');
+    second.service.segment({ text: 'bravo', atMs: 2_000 });
+    expect(first.service.applyRefinement(1, 'Alpha.')).toBe('replaced');
+    second.service.segment({ text: 'and more', atMs: 3_000 });
+    expect(first.reports).toEqual([]);
+    expect(second.reports).toEqual([]);
+
+    fs.writeFileSync(second.file, fs.readFileSync(second.file, 'utf8').replace('bravo', 'bravo fixed'));
+    second.service.segment({ text: 'charlie', atMs: 20_000 });
+    second.service.end(21_000);
+
+    expect(first.reports).toEqual([[2]]);
+    expect(second.reports).toEqual([[2]]);
+    expect(second.jobs.map((job) => job.blockIndex)).toEqual([3]);
+    const content = fs.readFileSync(second.file, 'utf8');
+    expect(content).toContain('Alpha.');
+    expect(content).toContain('bravo fixed and more');
+    expect(content.match(/\*\*2026-09-16 14:32\*\*/g)).toHaveLength(2);
+    expect(content).toContain('<!-- dw:block 3 t=3-21 -->\n**14:32**\ncharlie');
+    expect(content).toMatch(/duration: 24\n/);
   });
 });

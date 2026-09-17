@@ -5,18 +5,24 @@ import type { SessionStoreLike } from './sessionService';
 // e.g. an edit to the frontmatter).
 export type OutsideEditListener = (changedBlocks: number[]) => void;
 
-// Wraps the document store for one session. Before every read or write it compares the file with
-// what we last wrote (spec §5.3). An outside change becomes the new baseline, and the listener
-// learns which blocks changed: finished blocks are protected by their own hash when refined, and
-// the session marks the block still being recorded so it is never refined over the edit.
+// Wraps the document store for one document. Before every read or write it compares the file
+// with what we last wrote (spec §5.3). An outside change becomes the new baseline, and every
+// listener learns which blocks changed: closed blocks are protected by their own hash when
+// refined, and each run marks the block it is still writing so it is never refined over the edit.
+// Every run writing to the document shares this guard (spec §3.5, GuardRegistry).
 // A file that cannot be read at the moment (a sync client holding it) is not an edit.
 export class GuardedStore implements SessionStoreLike {
   private lastContent: string | null = null;
+  private readonly listeners = new Set<OutsideEditListener>();
 
-  constructor(
-    private readonly store: DocumentStore,
-    private readonly onOutsideEdit: OutsideEditListener,
-  ) {}
+  constructor(private readonly store: DocumentStore) {}
+
+  onOutsideEdit(listener: OutsideEditListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
 
   private checkForOutsideEdit(file: string): void {
     if (this.lastContent === null) return;
@@ -24,7 +30,7 @@ export class GuardedStore implements SessionStoreLike {
     if (current === null || current === this.lastContent) return;
     const changed = changedBlocks(this.lastContent, current);
     this.lastContent = current;
-    this.onOutsideEdit(changed);
+    for (const listener of [...this.listeners]) listener(changed);
   }
 
   noteWrite(file: string): void {
@@ -46,12 +52,6 @@ export class GuardedStore implements SessionStoreLike {
   appendSegment(file: string, text: string): void {
     this.checkForOutsideEdit(file);
     this.store.appendSegment(file, text);
-    this.noteWrite(file);
-  }
-
-  appendLine(file: string, line: string): void {
-    this.checkForOutsideEdit(file);
-    this.store.appendLine(file, line);
     this.noteWrite(file);
   }
 

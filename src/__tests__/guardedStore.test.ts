@@ -20,7 +20,8 @@ function setup() {
   const documents = new DocumentStore(vault);
   const file = documents.createDocument('2026-09-16-1903', FM);
   const reports: number[][] = [];
-  const guard = new GuardedStore(documents, (changed) => reports.push(changed));
+  const guard = new GuardedStore(documents);
+  guard.onOutsideEdit((changed) => reports.push(changed));
   guard.noteWrite(file);
   return { documents, file, reports, guard };
 }
@@ -32,7 +33,7 @@ describe('GuardedStore', () => {
     const ctx = setup();
     ctx.guard.openBlock(ctx.file, block(1, 0));
     ctx.guard.appendSegment(ctx.file, 'hello there');
-    ctx.guard.appendLine(ctx.file, '<!-- dw:gap -->');
+    ctx.guard.setBlockRange(ctx.file, block(1, 0));
     ctx.guard.updateFrontmatter(ctx.file, { duration: 5 });
     expect(ctx.guard.readBlockText(ctx.file, 1)).toBe('hello there');
     expect(ctx.reports).toEqual([]);
@@ -99,5 +100,20 @@ describe('GuardedStore', () => {
     expect(ctx.reports).toEqual([]);
     ctx.guard.appendSegment(ctx.file, 'more');
     expect(ctx.reports).toEqual([]);
+  });
+
+  it('tells every listener, and stops telling one that unsubscribed', () => {
+    const ctx = setup();
+    const other: number[][] = [];
+    const stop = ctx.guard.onOutsideEdit((changed) => other.push(changed));
+    ctx.guard.openBlock(ctx.file, block(1, 0));
+    ctx.guard.appendSegment(ctx.file, 'words');
+    fs.writeFileSync(ctx.file, fs.readFileSync(ctx.file, 'utf8').replace('words', 'wordz'));
+    ctx.guard.appendSegment(ctx.file, 'more');
+    stop();
+    fs.writeFileSync(ctx.file, fs.readFileSync(ctx.file, 'utf8').replace('wordz', 'words'));
+    ctx.guard.appendSegment(ctx.file, 'again');
+    expect(ctx.reports).toEqual([[1], [1]]);
+    expect(other).toEqual([[1]]);
   });
 });
