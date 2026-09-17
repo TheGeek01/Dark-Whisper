@@ -66,6 +66,8 @@ export interface CaptureDeviceView {
 
 export type SessionState = 'idle' | 'starting' | 'recording' | 'paused' | 'stopped' | 'error';
 export type BlockState = 'live' | 'empty' | 'queued' | 'refining' | 'refined' | 'skipped' | 'failed';
+export type SessionKind = 'session' | 'quick-note';
+export type SessionStartRequest = { kind: 'session'; folder: string } | { kind: 'quick-note' };
 
 export interface BlockEvent {
   sessionId: string;

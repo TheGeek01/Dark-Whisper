@@ -64,6 +64,24 @@ export function hashText(text: string): string {
   return createHash('sha256').update(text.trim()).digest('hex');
 }
 
+// A block's clock line (spec §3.2): **14:32**, or **2026-09-16 14:32** for the first block of a run.
+export const CLOCK_LINE = /^\*\*(\d{4}-\d{2}-\d{2} )?\d{2}:\d{2}\*\*$/;
+
+export function isClockLine(line: string): boolean {
+  return CLOCK_LINE.test(line.trim());
+}
+
+const pad2 = (value: number) => String(value).padStart(2, '0');
+
+export function localDateStamp(date: Date): string {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+export function formatClockLine(date: Date, withDate: boolean): string {
+  const time = `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+  return withDate ? `**${localDateStamp(date)} ${time}**` : `**${time}**`;
+}
+
 export function slugify(title: string): string {
   const slug = title
     .toLowerCase()
@@ -90,14 +108,14 @@ function blockLineRange(lines: string[], index: number): { start: number; end: n
   return { start, end };
 }
 
-// The text of one block as refinement sees it: no marker, headings or gap markers.
+// The text of one block as refinement sees it: no marker, headings, clock line or gap markers.
 export function blockTextFrom(content: string, index: number): string | null {
   const lines = content.replace(/\r\n/g, '\n').split('\n');
   const range = blockLineRange(lines, index);
   if (!range) return null;
   return lines
     .slice(range.start + 1, range.end)
-    .filter((line) => !line.trim().startsWith('#') && line.trim() !== '<!-- dw:gap -->')
+    .filter((line) => !line.trim().startsWith('#') && line.trim() !== '<!-- dw:gap -->' && !isClockLine(line))
     .join('\n')
     .trim();
 }
@@ -109,6 +127,11 @@ function blockIndexes(content: string): number[] {
     if (match) indexes.push(Number(match[1]));
   }
   return indexes;
+}
+
+// The index for the first block appended to an existing document.
+export function nextBlockIndex(content: string): number {
+  return Math.max(0, ...blockIndexes(content)) + 1;
 }
 
 // Blocks whose text differs between two versions of a document, in ascending order.
@@ -163,12 +186,35 @@ export class DocumentStore {
     }
   }
 
+  // A block's end is only known when it closes; the marker is rewritten then.
+  setBlockRange(file: string, block: BlockRef): void {
+    const lines = this.read(file).split('\n');
+    const range = blockLineRange(lines, block.index);
+    if (!range) return;
+    const ending = lines[range.start].endsWith('\r') ? '\r' : '';
+    lines[range.start] = `${blockMarker(block)}${ending}`;
+    this.write(file, lines.join('\n'));
+  }
+
+  // The daily quick note: created with its folder and frontmatter if missing, otherwise left as
+  // it is. Returns the file's content.
+  openOrCreate(file: string, fm: Frontmatter): string {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    try {
+      fs.writeFileSync(file, `${formatFrontmatter(fm)}\n`, { flag: 'wx' });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+    return this.read(file);
+  }
+
   // Segments join with a space so a block reads as prose, not one line per utterance.
   appendSegment(file: string, text: string): void {
     const content = this.read(file);
     const trimmed = content.replace(/\s+$/, '');
     const lastLine = trimmed.slice(trimmed.lastIndexOf('\n') + 1);
-    const continuing = lastLine.length > 0 && !lastLine.startsWith('<!--') && !lastLine.startsWith('#');
+    const continuing =
+      lastLine.length > 0 && !lastLine.startsWith('<!--') && !lastLine.startsWith('#') && !isClockLine(lastLine);
     this.write(file, `${trimmed}${continuing ? ' ' : '\n'}${text.trim()}\n`);
   }
 
@@ -190,7 +236,7 @@ export class DocumentStore {
 
     const headings = bounds.lines
       .slice(bounds.startLine + 1, bounds.endLine)
-      .filter((line) => line.trim().startsWith('#'));
+      .filter((line) => line.trim().startsWith('#') || isClockLine(line));
     const replacement = [...headings, text.trim(), ''];
     const next = [...bounds.lines.slice(0, bounds.startLine + 1), ...replacement, ...bounds.lines.slice(bounds.endLine)];
     this.write(file, next.join('\n'));

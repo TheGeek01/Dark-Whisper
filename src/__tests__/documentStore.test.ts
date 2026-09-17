@@ -1,7 +1,20 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { DocumentStore, Frontmatter, blockMarker, blockTextFrom, changedBlocks, hashText, parseFrontmatter, slugify } from '../services/documentStore';
+import {
+  DocumentStore,
+  Frontmatter,
+  blockMarker,
+  blockTextFrom,
+  changedBlocks,
+  formatClockLine,
+  hashText,
+  isClockLine,
+  localDateStamp,
+  nextBlockIndex,
+  parseFrontmatter,
+  slugify,
+} from '../services/documentStore';
 
 const FM: Frontmatter = {
   title: 'untitled',
@@ -268,5 +281,87 @@ describe('block text helpers', () => {
     expect(changedBlocks(DOC, DOC.replace('<!-- dw:block 2 t=120-240 -->\n', ''))).toEqual([1, 2]);
     expect(changedBlocks(DOC, DOC.replace('title: t', 'title: renamed'))).toEqual([]);
     expect(changedBlocks(DOC, `${DOC}\n<!-- dw:block 3 t=240-360 -->\nthird\n`)).toEqual([3]);
+  });
+});
+
+describe('clock lines', () => {
+  const at = new Date(2026, 8, 6, 9, 5);
+
+  it('formats a local time, with the date for the first block of a run', () => {
+    expect(formatClockLine(at, false)).toBe('**09:05**');
+    expect(formatClockLine(at, true)).toBe('**2026-09-06 09:05**');
+    expect(localDateStamp(at)).toBe('2026-09-06');
+  });
+
+  it('recognises only whole clock lines', () => {
+    expect(isClockLine('**14:32**')).toBe(true);
+    expect(isClockLine('  **2026-09-16 14:32**  ')).toBe(true);
+    expect(isClockLine('**14:32** said hello')).toBe(false);
+    expect(isClockLine('**bold**')).toBe(false);
+  });
+
+  it('numbers new blocks after the highest existing one', () => {
+    expect(nextBlockIndex('no markers here')).toBe(1);
+    expect(nextBlockIndex('<!-- dw:block 1 t=0-5 -->\nx\n<!-- dw:block 3 t=9-12 -->\ny\n<!-- dw:block 2 t=5-9 -->\n')).toBe(4);
+    expect(nextBlockIndex('<!-- dw:block 7 t=0-5 -->\r\nx\r\n')).toBe(8);
+  });
+
+  it('leaves the clock line out of the text refinement sees', () => {
+    const content = '<!-- dw:block 1 t=0-5 -->\n**14:32**\nhello there\n';
+    expect(blockTextFrom(content, 1)).toBe('hello there');
+  });
+});
+
+describe('DocumentStore with clock lines', () => {
+  let vault: string;
+  let store: DocumentStore;
+
+  beforeEach(() => {
+    vault = fs.mkdtempSync(path.join(os.tmpdir(), 'dw-clock-'));
+    store = new DocumentStore(vault);
+  });
+
+  afterEach(() => fs.rmSync(vault, { recursive: true, force: true }));
+
+  it('starts the text on the line after the clock line', () => {
+    const file = store.createDocument('s1', FM);
+    store.openBlock(file, { index: 1, startSec: 0, endSec: 0 }, '**14:32**');
+    store.appendSegment(file, 'hello');
+    store.appendSegment(file, 'there');
+    expect(fs.readFileSync(file, 'utf8')).toContain('<!-- dw:block 1 t=0-0 -->\n**14:32**\nhello there\n');
+  });
+
+  it('keeps the clock line when refinement replaces the block', () => {
+    const file = store.createDocument('s1', FM);
+    store.openBlock(file, { index: 1, startSec: 0, endSec: 0 }, '**2026-09-16 14:32**');
+    store.appendSegment(file, 'rough words');
+    expect(store.replaceBlock(file, 1, 'Rough words.', hashText('rough words'))).toBe('replaced');
+    expect(fs.readFileSync(file, 'utf8')).toContain('<!-- dw:block 1 t=0-0 -->\n**2026-09-16 14:32**\nRough words.\n');
+  });
+
+  it('rewrites a block marker with its final range, keeping the line ending', () => {
+    const file = store.createDocument('s1', FM);
+    store.openBlock(file, { index: 1, startSec: 3, endSec: 3 }, '**14:32**');
+    store.appendSegment(file, 'one');
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/\n/g, '\r\n'));
+    store.setBlockRange(file, { index: 1, startSec: 3, endSec: 9 });
+    store.setBlockRange(file, { index: 5, startSec: 0, endSec: 1 });
+    expect(fs.readFileSync(file, 'utf8')).toContain('<!-- dw:block 1 t=3-9 -->\r\n**14:32**\r\none');
+  });
+
+  it('creates a missing daily file with its folder and leaves an existing one alone', () => {
+    const file = path.join(vault, 'Quick Notes', '2026-09-16.md');
+    const created = store.openOrCreate(file, { ...FM, title: '2026-09-16' });
+    expect(created).toContain('title: 2026-09-16');
+    fs.appendFileSync(file, 'kept\n');
+    const again = store.openOrCreate(file, { ...FM, title: 'other' });
+    expect(again).toContain('kept');
+    expect(again).not.toContain('title: other');
+  });
+
+  it('refuses a folder that has the daily file name', () => {
+    const file = path.join(vault, 'Quick Notes', '2026-09-16.md');
+    fs.mkdirSync(file, { recursive: true });
+    expect(() => store.openOrCreate(file, FM)).toThrow();
   });
 });
