@@ -35,7 +35,7 @@ Replace paste-anywhere dictation with **Quick Note mode**: one Markdown file per
 | Model chip | Shows `live → refine` model names, opens the existing model picker |
 | Theme | Dark (default) and light, toggle in header, saved in settings (`theme`) |
 | Title bar | Frameless via Electron `titleBarStyle: 'hidden'` + `titleBarOverlay` (native Windows caption buttons in theme colours) |
-| Level meter | Driven by SoX level output; falls back to a pulse on each text arrival |
+| Level meter | Driven by levels the app computes from SoX's raw audio stream; falls back to a pulse on each text arrival |
 | Sidebar | Search (Ctrl+K, Ctrl+F), VAULT (folders with recursive counts, Quick Notes pinned first, then loose documents), RECENT (5), New Session, footer count + ••• menu |
 | Document toolbar | Open in editor, Copy path, Font size (3 steps), Focus mode. No share |
 | Right panel | Collapsible Session / Blocks / Document sections, open state remembered |
@@ -49,7 +49,7 @@ Replace paste-anywhere dictation with **Quick Note mode**: one Markdown file per
 
 `SessionService` closes the current block and opens the next one when any of these happens:
 
-1. **Silence gap** — a segment arrives whose start is at least `silenceGapSeconds` after the previous segment's end. The new segment becomes the first text of the new block.
+1. **Silence gap** — the audio between the previous segment and this one contains at least `silenceGapSeconds` of non-speech (rule below). The new segment becomes the first text of the new block.
 2. **Pause** — the block closes (queued for refinement) and a blank line follows. No `<!-- dw:gap -->` marker is written any more; existing documents that contain it still render.
 3. **Resume** — a new block opens.
 4. **Stop** — the last block closes, as today.
@@ -57,7 +57,9 @@ Replace paste-anywhere dictation with **Quick Note mode**: one Markdown file per
 
 A block that would be empty (e.g. Pause right after a gap opened a block, before any text) is not written; the next text opens it. This keeps the file free of orphan clock lines.
 
-Silence is measured from segment timing reported by whisper-stream (`atMs` and segment end). The implementation plan starts with a probe confirming these timings are stable enough; if they are not, the fallback is wall-clock time between segment arrivals, which is the same rule with slightly later splits.
+Silence is measured from the session audio itself (§4.5): SoX streams raw PCM to the app, which writes the WAV file and computes a level for every chunk (~0.25 s). A chunk is speech when its level is at least 10 dB above the noise floor (the 10th percentile of the last 30 s) and above −50 dBFS. When a segment arrives, the previous segment of the open block arrived at `a1` and this one at `a2`; if the longest run of non-speech chunks overlapping `(a1, a2)` lasts at least the silence gap, the block closes at `max(a1, midpoint of that run)` and the new segment opens the next block. whisper-stream's own timestamps are not used: in VAD mode they are relative to a 10 s window and often span all of it (probe, 2026-09-16). If no level data covers `(a1, a2)` (SoX failed), the fallback is `a2 − a1 ≥ gap`, closing at `a1`.
+
+An engine relaunch (whisper-stream crash) closes the open block at the relaunch time; the next text opens a new block with a clock line. No `<!-- dw:gap -->` marker or interruption note is written any more; the panel message about the restart remains.
 
 ### 3.2 Clock lines
 
@@ -84,7 +86,7 @@ Unchanged except for §3.1–3.2: same file naming, same target folder (selected
 - **File:** `<vault>/Quick Notes/<YYYY-MM-DD>.md`, date taken once at start. The folder is created if missing. A new file gets the usual frontmatter with `title: YYYY-MM-DD`.
 - **Appending:** an existing file is appended to. Block numbering continues after the highest `dw:block` index in the file (`nextBlockIndex(content)`, 1 if none). A hand-made file with no markers is valid.
 - **Frontmatter:** `duration` accumulates: the run adds its elapsed seconds to the value it found at start.
-- **Session audio / refinement:** each run is its own session (own id, own audio file, own refine queue), exactly like a regular session. Block markers' `t=` values are relative to that run's audio.
+- **Session audio / refinement:** each run is its own session (own id, own audio file, own refine queue), exactly like a regular session. Block markers' `t=` values are relative to that run's audio. Each run keeps its own audio manifest, so an earlier run keeps refining after a new one starts (until now an older session's blocks were skipped with "no audio" once another session started). A marker is written as `t=start-start` when the block opens and rewritten with the real end when it closes.
 - **Stop:** the run finishes like a session: last block queued, refinement continues in the background, audio deleted when done.
 - **Panel title:** "Quick Note" instead of "Session".
 
@@ -156,7 +158,7 @@ Three collapsible sections, with open/closed state remembered:
 
 ### 4.5 Level meter
 
-`streamRuntime` starts session SoX with its level display enabled (`-S`), parses the level from stderr, and emits `session-level` (0–1) at most 10 times a second. The renderer draws bars from the last ~40 values. If no level arrives within 2 s of recording, the meter pulses on each text event instead. The plan's opening probe confirms SoX's output format on Windows.
+SoX's own level display (`-S`) is buffered until SoX exits when stderr is a pipe (probe, 2026-09-16), so it cannot drive a meter. Instead `streamRuntime` runs SoX with raw 16 kHz mono PCM on stdout (`-t raw -`, measured at ~8192-byte chunks every ~0.25 s in real time), writes the WAV itself (44-byte header patched with the real size when the recorder stops), and computes each chunk's RMS level in dBFS. Levels feed the session's silence tracker (§3.1) and a `session-level` event (0–1, mapping −60…0 dBFS), sent at most 10 times a second. The renderer draws bars from the last ~40 values. If no level arrives within 2 s of recording, the meter pulses on each text event instead.
 
 ## 5. API changes
 
@@ -176,8 +178,7 @@ Three collapsible sections, with open/closed state remembered:
 | Daily file locked by another program at start | Retry as `DocumentStore` does today, then the same toast |
 | Daily file moved or renamed mid-run | Existing `documentMoved` path, applied to every run sharing the guard |
 | Start pressed while the other mode records | Refused with a toast naming the running mode |
-| No SoX level output | Meter falls back to pulses |
-| Silence timings unreliable (probe) | Wall-clock arrival gap is used instead |
+| No level data (SoX failed) | Meter falls back to pulses; silence falls back to segment arrival gaps |
 | Invalid `silenceGapSeconds` in settings | Clamped to 1–60 |
 
 ## 7. Testing
@@ -200,7 +201,7 @@ Unit tests are written first:
 - Integration (as in `sessionOutsideEdit.test.ts`):
   - a quick note run appending to a file that an earlier run is still refining
   - a Notepad++-style edit skips only the edited paragraph
-- SoX level parser.
+- PCM level and silence tracker; the WAV sink (header patched on close).
 - `documentView`:
   - clock-line extraction for the margin
   - locating a hit line inside a block
