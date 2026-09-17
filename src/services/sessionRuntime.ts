@@ -433,7 +433,6 @@ export async function startSession(request: SessionStartRequest): Promise<Sessio
     silence: {
       splitPoint: (afterSec, beforeSec, gapSec) =>
         (ctx?.audio?.silence ?? NO_AUDIO).splitPoint(afterSec, beforeSec, gapSec),
-      hasSpeech: (fromSec, toSec) => (ctx?.audio?.silence ?? NO_AUDIO).hasSpeech(fromSec, toSec),
     },
     now: () => new Date(),
   });

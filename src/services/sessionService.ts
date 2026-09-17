@@ -1,12 +1,10 @@
-import type { SpeechAudio } from './audioLevel';
+import type { SplitFinder } from './audioLevel';
 import { BlockRef, formatClockLine, hashText, ReplaceOutcome } from './documentStore';
+import { isFillerText, repeatsRecent } from './liveFilter';
 import { isNoiseSegment } from './streamOutput';
 
-// whisper-stream transcribes its last 10 s of audio each time it hears a pause; allow for the
-// time that takes.
-const LIVE_WINDOW_SEC = 12;
-// The lines of one transcribed window arrive together.
-const SAME_WINDOW_SEC = 0.5;
+// Live text is compared with what was written this long before it (liveFilter).
+const RECENT_TEXT_SEC = 15;
 
 export type RefineOutcome = ReplaceOutcome | 'no-speech';
 
@@ -53,7 +51,7 @@ export interface SessionDeps {
   // A paragraph closes after this long even without a pause.
   blockMinutes: number;
   silenceGapSec: number;
-  silence: SpeechAudio;
+  silence: SplitFinder;
   now(): Date;
 }
 
@@ -82,8 +80,7 @@ export class SessionService {
   private openedAny = false;
   private baseDurationSec = 0;
   private launches = 0;
-  private lastArrivalSec: number | null = null;
-  private lastArrivalKept = true;
+  private recentText: { atSec: number; text: string }[] = [];
 
   constructor(private readonly deps: SessionDeps) {}
 
@@ -131,8 +128,7 @@ export class SessionService {
     this.openedAny = false;
     this.baseDurationSec = args.baseDurationSec ?? 0;
     this.launches = 0;
-    this.lastArrivalSec = null;
-    this.lastArrivalKept = true;
+    this.recentText = [];
     this.info = { id: args.id, documentPath: args.documentPath, state: 'recording', blockIndex: 0, durationSec: 0 };
   }
 
@@ -200,24 +196,20 @@ export class SessionService {
     return split === null ? null : Math.min(atSec, Math.max(block.lastSegmentSec, split));
   }
 
-  // whisper-stream sometimes transcribes silence ("Thank you.", "you") or repeats words it
-  // already sent. Live text is kept only if someone spoke since the previous text; lines of one
-  // window share that decision. With no audio to judge by, everything is kept.
-  private heardSpeech(atSec: number): boolean {
-    const previous = this.lastArrivalSec;
-    if (previous !== null && atSec - previous < SAME_WINDOW_SEC) return this.lastArrivalKept;
-    const from = Math.max(previous ?? 0, atSec - LIVE_WINDOW_SEC, 0);
-    return this.deps.silence.hasSpeech(from, atSec) !== false;
+  // whisper-stream writes stock phrases on silence ("Thank you.", "you") and sends the end of a
+  // sentence again when it re-reads an overlapping window; neither is written.
+  private keepLiveText(text: string, atSec: number): boolean {
+    this.recentText = this.recentText.filter((line) => atSec - line.atSec <= RECENT_TEXT_SEC);
+    if (isFillerText(text) || repeatsRecent(text, this.recentText.map((line) => line.text))) return false;
+    this.recentText.push({ atSec, text });
+    return true;
   }
 
   // Returns whether the text was written.
   segment(s: { text: string; atMs: number }): boolean {
     if (this.info.state !== 'recording') return false;
     const atSec = s.atMs / 1000;
-    const kept = this.heardSpeech(atSec);
-    this.lastArrivalSec = atSec;
-    this.lastArrivalKept = kept;
-    if (!kept) return false;
+    if (!this.keepLiveText(s.text, atSec)) return false;
     if (this.open) {
       const split = this.splitPoint(this.open, atSec);
       if (split !== null) this.closeOpen(split);
