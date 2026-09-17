@@ -13,7 +13,7 @@ import { RefineJob, SessionService } from './sessionService';
 import { newSessionId } from './sessionPaths';
 import { CaptureDevice } from './streamOutput';
 import { getSettings } from './settingsService';
-import { startLiveEngine, stopLiveEngine, streamEngine, sessionsRoot, sessionAudioManifest } from './streamRuntime';
+import { SessionAudio, startLiveEngine, stopLiveEngine, streamEngine, sessionsRoot } from './streamRuntime';
 import { transcribeAudio } from './apiService';
 import { modelManager, whisperServer } from './whisperRuntime';
 import type { BlockEvent, BlockState, SessionStatusView } from '../shared/api';
@@ -53,6 +53,8 @@ interface SessionContext {
   microphone: string;
   liveModel: string;
   refineModel: string;
+  // Set once the recorder starts; each run keeps its own, so an older run can still be refined.
+  audio: SessionAudio | null;
   messages: string[];
   blocks: Map<number, BlockEvent>;
 }
@@ -213,10 +215,9 @@ export function sessionStatus(): SessionStatusView {
   };
 }
 
-// The manifest comes from streamRuntime's SoX recorder (absolute paths, real-time audio).
 // Durations are derived from the files' current size, because the newest file is still growing.
-function audioManifest(): AudioEntry[] {
-  return sessionAudioManifest().map((entry) => {
+function audioManifest(ctx: SessionContext): AudioEntry[] {
+  return (ctx.audio?.entries ?? []).map((entry) => {
     let size = 0;
     try {
       size = fs.statSync(entry.file).size;
@@ -233,10 +234,7 @@ function audioManifest(): AudioEntry[] {
 
 async function sliceAudio(ctx: SessionContext, job: RefineJob): Promise<string | null> {
   if (ctx.audioRemoved) return null;
-  // The recorder's manifest is replaced when the next session starts; an older session's audio
-  // can no longer be located after that.
-  if (current !== ctx) return null;
-  const slices = slicesForRange(audioManifest(), job.startSec, job.endSec);
+  const slices = slicesForRange(audioManifest(ctx), job.startSec, job.endSec);
   if (slices.length === 0) return null;
   const chunks: Buffer[] = [];
   for (const slice of slices) {
@@ -438,6 +436,7 @@ export async function startSession(folder = ''): Promise<SessionStatusView> {
     microphone: device?.name ?? 'System default',
     liveModel: settings.liveModelId,
     refineModel: settings.serverMode === 'external' ? 'External API' : settings.modelId ?? 'none',
+    audio: null,
     messages: [],
     blocks: new Map(),
   };
@@ -459,7 +458,7 @@ export async function startSession(folder = ''): Promise<SessionStatusView> {
   // The first poll reports the current mute state, so a session started muted begins paused.
   micMute.start();
   try {
-    await startLiveEngine({ sessionId: id, captureId: device?.index ?? null, deviceName: device?.name });
+    ctx.audio = await startLiveEngine({ sessionId: id, captureId: device?.index ?? null, deviceName: device?.name });
   } catch (error) {
     await stopSession();
     throw error;

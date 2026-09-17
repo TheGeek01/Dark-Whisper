@@ -158,7 +158,8 @@ export class StreamEngine {
     this.setStatus({ ...this.status, state: 'error', message });
   }
 
-  private elapsed(): number {
+  // Milliseconds since start(), on the clock segment and launch times use.
+  elapsedMs(): number {
     return this.deps.now() - this.startedAt;
   }
 
@@ -211,7 +212,7 @@ export class StreamEngine {
       case 'ready':
         if (this.status.state === 'starting') {
           this.setStatus({ ...this.status, state: this.paused ? 'paused' : 'listening', message: undefined });
-          const atMs = this.elapsed();
+          const atMs = this.elapsedMs();
           for (const l of this.launchListeners) l({ atMs });
         }
         return;
@@ -229,7 +230,7 @@ export class StreamEngine {
         return;
       case 'segment': {
         if (this.status.state !== 'listening' || isNoiseSegment(event.text)) return;
-        const segment = { text: event.text, atMs: this.elapsed() };
+        const segment = { text: event.text, atMs: this.elapsedMs() };
         for (const l of this.segmentListeners) l(segment);
         return;
       }

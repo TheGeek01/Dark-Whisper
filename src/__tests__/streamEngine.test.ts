@@ -212,4 +212,19 @@ describe('StreamEngine', () => {
     expect(ctx.deps.spawnStream).not.toHaveBeenCalled();
     expect(ctx.engine.getStatus()).toMatchObject({ state: 'error', message: expect.stringMatching(/stream\.exe/) });
   });
+
+  it('reports the time since start on the segment clock', async () => {
+    let now = 1_000;
+    const engine = new StreamEngine({
+      resolveBinary: () => null,
+      spawnStream: () => {
+        throw new Error('not spawned');
+      },
+      writeLog: () => undefined,
+      now: () => now,
+    });
+    await engine.start({ modelPath: 'm', language: 'en', captureId: null, forceCpu: false, cwd: '.', threads: 2 });
+    now = 4_500;
+    expect(engine.elapsedMs()).toBe(3_500);
+  });
 });

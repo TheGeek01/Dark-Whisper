@@ -4,37 +4,14 @@ import * as path from 'path';
 import { app } from 'electron';
 import { promisify } from 'util';
 
+import { getSoxPath } from './soxPath';
+
+export { getSoxPath };
+
 const execAsync = promisify(exec);
 
 let recordingProcess: ReturnType<typeof spawn> | null = null;
 
-/**
- * Get the path to sox.exe
- * Checks multiple locations: packaged app, development node_modules, and system PATH
- */
-export function getSoxPath(): string {
-  const appPath = app.getAppPath();
-
-  // Check if we're in a packaged app (asar archive)
-  if (appPath.includes('.asar')) {
-    // appPath is like: C:\...\resources\app.asar
-    // We need to go to: C:\...\resources\app.asar.unpacked\...
-    const resourcesDir = path.dirname(appPath);
-    const asarPath = path.join(resourcesDir, 'app.asar.unpacked', 'node_modules', 'node-mic', 'sox-win32', 'sox.exe');
-    if (fs.existsSync(asarPath)) {
-      return asarPath;
-    }
-  }
-
-  // Development mode: sox is in node_modules
-  const devPath = path.join(appPath, 'node_modules', 'node-mic', 'sox-win32', 'sox.exe');
-  if (fs.existsSync(devPath)) {
-    return devPath;
-  }
-
-  // Fallback: assume sox is in system PATH
-  return 'sox';
-}
 
 /**
  * Get list of available audio input devices using PowerShell
