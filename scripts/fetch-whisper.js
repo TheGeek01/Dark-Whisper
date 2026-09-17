@@ -14,6 +14,31 @@ const tag = fs.readFileSync(path.join(root, 'whisper.version'), 'utf8').trim();
 const whisperDir = path.join(root, 'resources', 'whisper');
 const outDir = path.join(whisperDir, 'cpu');
 const url = `https://github.com/ggml-org/whisper.cpp/releases/download/${tag}/whisper-bin-x64.zip`;
+const vadPin = JSON.parse(fs.readFileSync(path.join(root, 'whisper-vad.json'), 'utf8'));
+
+// The Silero VAD model whisper-server uses to skip silence when refining (whisper-vad.json).
+async function fetchVadModel() {
+  const vadDir = path.join(whisperDir, 'vad');
+  const target = path.join(vadDir, vadPin.file);
+  if (fs.existsSync(target)) {
+    const existing = fs.readFileSync(target);
+    if (crypto.createHash('sha256').update(existing).digest('hex') === vadPin.sha256) {
+      console.log(`VAD model ${vadPin.file} already present`);
+      return;
+    }
+  }
+  console.log(`Downloading ${vadPin.url}`);
+  const res = await fetch(vadPin.url);
+  if (!res.ok) throw new Error(`Download failed: HTTP ${res.status} for ${vadPin.url}`);
+  const data = Buffer.from(await res.arrayBuffer());
+  const hash = crypto.createHash('sha256').update(data).digest('hex');
+  if (data.length !== vadPin.size || hash !== vadPin.sha256) {
+    throw new Error(`Checksum mismatch for ${vadPin.url}: expected ${vadPin.sha256} (${vadPin.size} bytes), got ${hash} (${data.length} bytes)`);
+  }
+  fs.mkdirSync(vadDir, { recursive: true });
+  fs.writeFileSync(target, data);
+  console.log(`Installed ${vadPin.file} to ${path.relative(root, vadDir)}`);
+}
 
 async function main() {
   if (process.platform !== 'win32') {
@@ -53,6 +78,7 @@ async function main() {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
   console.log(`Installed whisper.cpp ${tag} CPU server to ${path.relative(root, outDir)}`);
+  await fetchVadModel();
 }
 
 main().catch((error) => {

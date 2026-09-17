@@ -168,6 +168,62 @@ jobs:
             Stop-Process -Id $server.Id -Force
           }
 
+      - name: Fetch Silero VAD model
+        shell: pwsh
+        run: |
+          $pin = Get-Content whisper-vad.json -Raw | ConvertFrom-Json
+          New-Item -ItemType Directory -Force whisper-dist/vad | Out-Null
+          $out = "whisper-dist/vad/$($pin.file)"
+          curl.exe -sL -o $out $pin.url
+          if ($LASTEXITCODE -ne 0) { throw "VAD model download failed: $($pin.url)" }
+          $hash = (Get-FileHash $out -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $pin.sha256) { throw "VAD model checksum mismatch: $hash" }
+          if ((Get-Item $out).Length -ne $pin.size) { throw 'VAD model size mismatch' }
+
+      - name: Smoke test VAD
+        shell: pwsh
+        run: |
+          $pin = Get-Content whisper-vad.json -Raw | ConvertFrom-Json
+          $silence = "$env:RUNNER_TEMP/silence.wav"
+          $dataBytes = 6 * 32000
+          $writer = New-Object System.IO.BinaryWriter([System.IO.File]::Create($silence))
+          $writer.Write([System.Text.Encoding]::ASCII.GetBytes('RIFF'))
+          $writer.Write([int](36 + $dataBytes))
+          $writer.Write([System.Text.Encoding]::ASCII.GetBytes('WAVEfmt '))
+          $writer.Write([int]16)
+          $writer.Write([int16]1)
+          $writer.Write([int16]1)
+          $writer.Write([int]16000)
+          $writer.Write([int]32000)
+          $writer.Write([int16]2)
+          $writer.Write([int16]16)
+          $writer.Write([System.Text.Encoding]::ASCII.GetBytes('data'))
+          $writer.Write([int]$dataBytes)
+          $writer.Write((New-Object byte[] $dataBytes))
+          $writer.Close()
+
+          $server = Start-Process -FilePath whisper-dist/cpu/whisper-server.exe -PassThru -NoNewWindow -ArgumentList @(
+            '-m', "$env:RUNNER_TEMP/ggml-tiny.en.bin", '--host', '127.0.0.1', '--port', '18081',
+            '--inference-path', '/v1/audio/transcriptions', '--vad', '-vm', "whisper-dist/vad/$($pin.file)")
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 60; $i++) {
+              try {
+                if ((Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18081/health).StatusCode -eq 200) { $ready = $true; break }
+              } catch {}
+              Start-Sleep -Seconds 1
+            }
+            if (-not $ready) { throw 'whisper-server with VAD did not become ready' }
+            $quiet = curl.exe -s -F "file=@$silence" -F response_format=json http://127.0.0.1:18081/v1/audio/transcriptions | ConvertFrom-Json
+            Write-Output "silence: '$($quiet.text)'"
+            if ($quiet.text.Trim() -ne '') { throw 'VAD did not skip silence' }
+            $speech = curl.exe -s -F "file=@$env:RUNNER_TEMP/jfk.wav" -F response_format=json http://127.0.0.1:18081/v1/audio/transcriptions
+            Write-Output $speech
+            if ($speech -notmatch 'ask not') { throw 'VAD lost the speech' }
+          } finally {
+            Stop-Process -Id $server.Id -Force
+          }
+
       - name: Check Vulkan server launches
         shell: pwsh
         run: |
