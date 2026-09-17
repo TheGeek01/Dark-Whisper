@@ -3,6 +3,7 @@ import { initDocument } from './document.js';
 import { initHeader, setShortcut } from './header.js';
 import { initLibrary } from './library.js';
 import { initSessionPanel } from './sessionPanel.js';
+import { initTheme } from './theme.js';
 import { applyBlock, applySegment, applyStatus } from './sessionModel.js';
 import { getState, update } from './state.js';
 import { reportError } from './toast.js';
@@ -15,6 +16,7 @@ function initSession(): void {
 }
 
 initDialogs({ onSettingsSaved: (settings) => setShortcut(settings.shortcut) });
+initTheme();
 initHeader();
 initLibrary();
 initDocument();

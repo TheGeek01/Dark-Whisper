@@ -28,6 +28,7 @@ import {
   toggleQuickNote,
 } from './services/sessionRuntime';
 import { parseStartRequest } from './services/quickNotes';
+import { titleBarOverlay, windowBackground } from './services/windowTheme';
 import { onLibraryChanged, registerLibraryIpc, stopWatching, watchVault } from './services/libraryRuntime';
 
 let mainWindow: BrowserWindow | null = null;
@@ -59,12 +60,16 @@ const openExternalLink = (url: string) => {
 };
 
 const createWindow = () => {
+  const theme = getSettings().theme;
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 760,
-    minWidth: 900,
-    minHeight: 560,
-    backgroundColor: '#15151b',
+    width: 1280,
+    height: 800,
+    minWidth: 960,
+    minHeight: 600,
+    backgroundColor: windowBackground(theme),
+    // The page draws its own header; Windows keeps drawing the caption buttons over it.
+    titleBarStyle: 'hidden',
+    titleBarOverlay: titleBarOverlay(theme),
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -473,6 +478,11 @@ ipcMain.handle('save-settings', async (_event, settings: any) => {
   }
   saveSettings(settings);
   const after = getSettings();
+
+  if (before.theme !== after.theme && mainWindow) {
+    mainWindow.setTitleBarOverlay(titleBarOverlay(after.theme));
+    mainWindow.setBackgroundColor(windowBackground(after.theme));
+  }
 
   if (before.vaultPath !== after.vaultPath) {
     watchVault();
