@@ -12,13 +12,14 @@ import { MicMuteService } from './micMuteService';
 import { buildShimArgs, parseMuteOutput } from './micMuteOutput';
 import { SilenceTracker } from './audioLevel';
 import { RefineJob, SessionService } from './sessionService';
+import { prepareQuickNote, startRefusal } from './quickNotes';
 import { newSessionId } from './sessionPaths';
 import { CaptureDevice } from './streamOutput';
 import { getSettings } from './settingsService';
 import { SessionAudio, startLiveEngine, stopLiveEngine, streamEngine, sessionsRoot } from './streamRuntime';
 import { transcribeAudio } from './apiService';
 import { modelManager, whisperServer } from './whisperRuntime';
-import type { BlockEvent, BlockState, SessionStatusView } from '../shared/api';
+import type { BlockEvent, BlockState, SessionKind, SessionStartRequest, SessionStatusView } from '../shared/api';
 import { LibraryService, toRelative } from './libraryService';
 
 export type { SessionStatusView };
@@ -44,6 +45,7 @@ const NO_AUDIO = new SilenceTracker();
 // one starts, so its callbacks must never reach for "the current session".
 interface SessionContext {
   id: string;
+  kind: SessionKind;
   vaultPath: string;
   folder: string;
   documentPath: string;
@@ -146,7 +148,7 @@ function recordBlock(
   blockIndex: number,
   state: BlockState,
   message?: string,
-  range?: { startSec: number; endSec: number },
+  range?: { startSec: number; endSec: number; clock?: string },
 ): void {
   const previous = ctx.blocks.get(blockIndex);
   const event: BlockEvent = {
@@ -154,6 +156,7 @@ function recordBlock(
     blockIndex,
     startSec: range?.startSec ?? previous?.startSec ?? 0,
     endSec: range?.endSec ?? previous?.endSec ?? 0,
+    clock: range?.clock ?? previous?.clock ?? '',
     state,
     ...(message ? { message } : {}),
   };
@@ -204,6 +207,7 @@ export function sessionStatus(): SessionStatusView {
 
   return {
     sessionId: ctx?.id ?? null,
+    kind: ctx?.kind ?? 'session',
     state,
     documentPath: ctx?.documentPath ?? null,
     documentFile: ctx ? toRelative(ctx.vaultPath, ctx.documentPath) : null,
@@ -361,20 +365,16 @@ async function applyPause(paused: boolean, source: 'app' | 'mic'): Promise<void>
   emit();
 }
 
-export async function startSession(folder = ''): Promise<SessionStatusView> {
-  if (isSessionActive()) throw new Error('A session is already recording');
-  if (current && !current.audioRemoved) finishing.add(current);
+export async function startSession(request: SessionStartRequest): Promise<SessionStatusView> {
+  const refusal = startRefusal(isSessionActive() && current ? current.kind : null, request.kind);
+  if (refusal) throw new Error(refusal);
 
   const settings = getSettings();
   const documents = new DocumentStore(settings.vaultPath);
-  const library = new LibraryService(settings.vaultPath);
-  const target = resolveTargetFolder(library, folder);
-  const id = newSessionId(new Date());
-  statusMessage = undefined;
-
-  const created = new Date().toISOString();
-  const frontmatter: Frontmatter = {
-    title: 'untitled',
+  const startedAt = new Date();
+  const id = newSessionId(startedAt);
+  const created = startedAt.toISOString();
+  const details: Omit<Frontmatter, 'title'> = {
     created,
     updated: created,
     duration: 0,
@@ -383,9 +383,32 @@ export async function startSession(folder = ''): Promise<SessionStatusView> {
     refineModel: settings.modelId ?? 'none',
     app: `dark-whisper ${app.getVersion()}`,
   };
-  const base = id.replace(/^(\d{4})(\d{2})(\d{2})-(\d{4})\d{2}$/, '$1-$2-$3-$4');
-  const targetDir = path.join(settings.vaultPath, target.folder);
-  const documentPath = documents.createDocument(uniqueDocumentId(targetDir, base), frontmatter, target.folder);
+
+  // A quick note appends to today's file in Quick Notes (spec §3.4); a session gets a new
+  // document in the selected folder.
+  let documentPath: string;
+  let folder: string;
+  let firstBlockIndex = 1;
+  let baseDurationSec = 0;
+  let folderMessage: string | undefined;
+  if (request.kind === 'quick-note') {
+    const target = prepareQuickNote(documents, settings.vaultPath, startedAt, details);
+    documentPath = target.documentPath;
+    folder = target.folder;
+    firstBlockIndex = target.firstBlockIndex;
+    baseDurationSec = target.baseDurationSec;
+  } else {
+    const library = new LibraryService(settings.vaultPath);
+    const target = resolveTargetFolder(library, request.folder);
+    folder = target.folder;
+    folderMessage = target.message;
+    const base = id.replace(/^(\d{4})(\d{2})(\d{2})-(\d{4})\d{2}$/, '$1-$2-$3-$4');
+    const targetDir = path.join(settings.vaultPath, folder);
+    documentPath = documents.createDocument(uniqueDocumentId(targetDir, base), { title: 'untitled', ...details }, folder);
+  }
+
+  if (current && !current.audioRemoved) finishing.add(current);
+  statusMessage = undefined;
 
   let ctx: SessionContext | null = null;
   // An outside change that touched no block (a line-ending resave, the frontmatter) is not worth a
@@ -436,8 +459,9 @@ export async function startSession(folder = ''): Promise<SessionStatusView> {
 
   ctx = {
     id,
+    kind: request.kind,
     vaultPath: settings.vaultPath,
-    folder: target.folder,
+    folder,
     documentPath,
     service,
     queue,
@@ -460,7 +484,7 @@ export async function startSession(folder = ''): Promise<SessionStatusView> {
     blocks: new Map(),
   };
   current = ctx;
-  if (target.message) addMessage(ctx, target.message);
+  if (folderMessage) addMessage(ctx, folderMessage);
   if (settings.captureDeviceName && !device) {
     addMessage(ctx, `Microphone "${settings.captureDeviceName}" not found — using the default device`);
   }
@@ -471,7 +495,7 @@ export async function startSession(folder = ''): Promise<SessionStatusView> {
     else recordBlock(owner, event.blockIndex, event.state, undefined, event);
   });
   queue.setAllowed(refinementAllowed(ctx));
-  service.begin({ id, documentPath });
+  service.begin({ id, documentPath, firstBlockIndex, baseDurationSec });
   service.onInfo(() => emit());
 
   // The first poll reports the current mute state, so a session started muted begins paused.
@@ -510,6 +534,16 @@ export async function stopSession(): Promise<void> {
   void audioStopped
     .then(() => settle(ctx))
     .catch((error) => console.error('Failed to finish the session:', error));
+}
+
+// Ctrl+Q and the Quick Notes button: stop a running quick note, else start one. A running
+// session is not touched; startSession refuses with a message instead.
+export async function toggleQuickNote(): Promise<void> {
+  if (isSessionActive() && current?.kind === 'quick-note') {
+    await stopSession();
+    return;
+  }
+  await startSession({ kind: 'quick-note' });
 }
 
 export async function revealDocument(): Promise<void> {

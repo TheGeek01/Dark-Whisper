@@ -76,12 +76,14 @@ export interface BlockEvent {
   blockIndex: number;
   startSec: number;
   endSec: number;
+  clock: string; // the block's clock line, e.g. **14:32**; '' when unknown
   state: BlockState;
   message?: string;
 }
 
 export interface SessionStatusView {
   sessionId: string | null;
+  kind: SessionKind;
   state: SessionState;
   documentPath: string | null; // absolute
   documentFile: string | null; // relative to the vault the session was started in
@@ -169,7 +171,8 @@ export interface DarkWhisperApi {
   onDownloadProgress(callback: (progress: DownloadProgressView) => void): void;
   onOpenModels(callback: () => void): void;
   // Sessions
-  startSession(folder?: string): Promise<SessionStatusView>;
+  startSession(request: SessionStartRequest): Promise<SessionStatusView>;
+  toggleQuickNote(): Promise<void>;
   pauseSession(): Promise<void>;
   resumeSession(): Promise<void>;
   stopSession(): Promise<void>;

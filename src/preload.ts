@@ -34,7 +34,8 @@ const api: DarkWhisperApi = {
   onDownloadProgress: (callback) => on('download-progress', callback),
   onOpenModels: (callback) => on('open-models', () => callback()),
 
-  startSession: (folder) => ipcRenderer.invoke('session-start', folder),
+  startSession: (request) => ipcRenderer.invoke('session-start', request),
+  toggleQuickNote: () => ipcRenderer.invoke('quick-note-toggle'),
   pauseSession: () => ipcRenderer.invoke('session-pause'),
   resumeSession: () => ipcRenderer.invoke('session-resume'),
   stopSession: () => ipcRenderer.invoke('session-stop'),

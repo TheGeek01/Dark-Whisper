@@ -93,7 +93,7 @@ export function initHeader(): void {
     else toast(result.message ?? 'Could not copy', 'error');
   });
   byId('sessionStartBtn').addEventListener('click', () => {
-    window.api.startSession(getState().selectedFolder).catch(reportError);
+    window.api.startSession({ kind: 'session', folder: getState().selectedFolder }).catch(reportError);
   });
   byId('sessionPauseBtn').addEventListener('click', () => {
     const paused = getState().session.status?.state === 'paused';

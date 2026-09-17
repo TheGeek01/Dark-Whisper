@@ -12,6 +12,7 @@ import { getState, subscribe, update } from '../renderer/state';
 
 const status = (overrides: Partial<SessionStatusView> = {}): SessionStatusView => ({
   sessionId: 's1',
+  kind: 'session',
   state: 'recording',
   documentPath: 'C:/v/a.md',
   documentFile: 'a.md',
@@ -33,6 +34,7 @@ const block = (blockIndex: number, state: BlockEvent['state'], sessionId = 's1')
   blockIndex,
   startSec: (blockIndex - 1) * 120,
   endSec: blockIndex * 120,
+  clock: '',
   state,
 });
 

@@ -25,7 +25,9 @@ import {
   sessionStatus,
   startSession,
   stopSession,
+  toggleQuickNote,
 } from './services/sessionRuntime';
+import { parseStartRequest } from './services/quickNotes';
 import { onLibraryChanged, registerLibraryIpc, stopWatching, watchVault } from './services/libraryRuntime';
 
 let mainWindow: BrowserWindow | null = null;
@@ -556,12 +558,14 @@ ipcMain.handle('select-model', async (_event, id: string) => {
   await startBuiltinServer();
 });
 
-ipcMain.handle('session-start', async (_event, folder?: unknown) => {
+ipcMain.handle('session-start', async (_event, request?: unknown) => {
   if (isRecording) {
     throw new Error('Quick dictation is recording. Stop it before starting a session.');
   }
-  return startSession(typeof folder === 'string' ? folder : '');
+  return startSession(parseStartRequest(request));
 });
+
+ipcMain.handle('quick-note-toggle', () => toggleQuickNote());
 
 ipcMain.handle('session-pause', () => pauseSession());
 ipcMain.handle('session-resume', () => resumeSession());

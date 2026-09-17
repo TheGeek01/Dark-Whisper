@@ -75,7 +75,7 @@ describe('parseDocument', () => {
 });
 
 describe('mergeLiveText', () => {
-  const blocks: BlockEvent[] = [{ sessionId: 's', blockIndex: 4, startSec: 360, endSec: 480, state: 'live' }];
+  const blocks: BlockEvent[] = [{ sessionId: 's', blockIndex: 4, startSec: 360, endSec: 480, state: 'live', clock: '' }];
 
   it('appends pending text to the last part of its block', () => {
     const parts = parseDocument(DOC).parts;
