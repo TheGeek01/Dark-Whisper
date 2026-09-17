@@ -58,13 +58,23 @@
 
     <section class="document" aria-label="Document">
       <div class="doc-bar">
+        <span class="i i-file doc-icon" aria-hidden="true"></span>
         <h1 id="docTitle">Select a document</h1>
-        <button class="icon" id="docRenameBtn" title="Rename" hidden>✎</button>
-        <button class="icon" id="docCopyBtn" title="Copy all" hidden>⧉</button>
-        <button class="icon" id="docOpenBtn" title="Open in editor" hidden>↗</button>
+        <button class="icon" id="docRenameBtn" title="Rename" hidden><span class="i i-pencil" aria-hidden="true"></span></button>
+        <span class="spacer"></span>
+        <div class="meter" id="levelMeter" aria-hidden="true" hidden></div>
+        <span class="live-badge" id="liveBadge" hidden><span class="dot"></span>Live</span>
       </div>
-      <div class="doc-body" id="docBody"></div>
+      <div class="doc-body size-1" id="docBody"></div>
       <button class="btn jump" id="jumpLiveBtn" hidden>Jump to live ↓</button>
+      <div class="doc-toolbar" id="docToolbar" hidden>
+        <button class="icon" id="docOpenBtn" title="Open in editor"><span class="i i-external" aria-hidden="true"></span></button>
+        <button class="icon" id="docCopyPathBtn" title="Copy the file path"><span class="i i-copy" aria-hidden="true"></span></button>
+        <button class="icon" id="docCopyBtn" title="Copy the text"><span class="i i-file" aria-hidden="true"></span></button>
+        <span class="spacer"></span>
+        <button class="icon text" id="fontSizeBtn" title="Text size">Aa</button>
+        <button class="icon" id="focusBtn" title="Focus mode"><span class="i i-focus" aria-hidden="true"></span></button>
+      </div>
     </section>
 
     <aside class="panel" id="sessionPanel" aria-label="Session">

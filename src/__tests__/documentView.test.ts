@@ -1,14 +1,21 @@
 import type { BlockEvent } from '../shared/api';
 import {
-  blockCaption,
+  absolutePath,
+  clockOf,
+  clockParts,
+  documentDetailRows,
   documentTitle,
   DocumentPart,
   frontmatterRows,
+  hitNeedle,
+  lineIndexContaining,
   mergeLiveText,
+  normalizeText,
   parseDocument,
   partIndexForLine,
   plainText,
 } from '../renderer/documentView';
+import { formatDate } from '../renderer/format';
 
 const DOC = [
   '---',
@@ -39,6 +46,7 @@ const part = (overrides: Partial<DocumentPart>): DocumentPart => ({
   startSec: 0,
   endSec: 0,
   continued: false,
+  clock: '',
   line: 1,
   markdown: '',
   ...overrides,
@@ -124,14 +132,92 @@ describe('document helpers', () => {
     expect(documentTitle({}, 'Work/ideas.md')).toBe('ideas');
   });
 
-  it('captions a block with its time range', () => {
-    expect(blockCaption(part({ index: 2, startSec: 120, endSec: 240 }))).toBe('Block 2 · 02:00–04:00');
-  });
-
-  it('lists the known frontmatter fields', () => {
+  it('lists the known frontmatter fields, showing a created time locally', () => {
     expect(frontmatterRows({ created: 'x', duration: '250', title: 't', other: 'y' })).toEqual([
       { label: 'Created', value: 'x' },
       { label: 'Duration', value: '04:10' },
     ]);
+    expect(frontmatterRows({ created: '2026-09-16T17:52:00Z' })).toEqual([
+      { label: 'Created', value: formatDate('2026-09-16T17:52:00Z', 0) },
+    ]);
+  });
+
+  it('adds the path after the created time', () => {
+    expect(documentDetailRows({ created: 'x', language: 'en' }, 'Testing/test doc.md')).toEqual([
+      { label: 'Created', value: 'x' },
+      { label: 'Path', value: 'Testing/test doc.md' },
+      { label: 'Language', value: 'en' },
+    ]);
+    expect(documentDetailRows({}, 'a.md')).toEqual([{ label: 'Path', value: 'a.md' }]);
+  });
+});
+
+describe('clock lines', () => {
+  const content = [
+    '---',
+    'title: Day',
+    '---',
+    '',
+    '<!-- dw:block 1 t=0-4 -->',
+    '**2026-09-16 14:32**',
+    'First note.',
+    '',
+    '<!-- dw:block 2 t=10-14 -->',
+    '**14:35**',
+    'Second note.',
+    'Another line.',
+    '',
+  ].join('\n');
+
+  it('moves each clock line out of the text into its paragraph', () => {
+    const parts = parseDocument(content).parts;
+    expect(parts.map((p) => [p.index, p.clock, p.markdown, p.line])).toEqual([
+      [1, '2026-09-16 14:32', 'First note.', 5],
+      [2, '14:35', 'Second note.\nAnother line.', 9],
+    ]);
+  });
+
+  it('keeps bold text and late clock lines as text', () => {
+    expect(parseDocument('<!-- dw:block 1 t=0-0 -->\n**Agenda**\nx').parts[0]).toMatchObject({ clock: '', markdown: '**Agenda**\nx' });
+    expect(parseDocument('<!-- dw:block 1 t=0-0 -->\nhello\n**14:32**').parts[0]).toMatchObject({ clock: '', markdown: 'hello\n**14:32**' });
+  });
+
+  it('reads and splits clocks', () => {
+    expect(clockOf('**14:32**')).toBe('14:32');
+    expect(clockOf(' **2026-09-16 14:32** ')).toBe('2026-09-16 14:32');
+    expect(clockOf('**later**')).toBe('');
+    expect(clockParts('2026-09-16 14:32')).toEqual({ date: '2026-09-16', time: '14:32' });
+    expect(clockParts('14:32')).toEqual({ date: '', time: '14:32' });
+    expect(clockParts('')).toEqual({ date: '', time: '' });
+  });
+
+  it('gives a live paragraph the read has not seen yet the clock of its event', () => {
+    const merged = mergeLiveText([], new Map([[3, 'hi']]), [
+      { sessionId: 's', blockIndex: 3, startSec: 5, endSec: 5, state: 'live', clock: '**14:40**' },
+    ]);
+    expect(merged).toEqual([part({ index: 3, startSec: 5, endSec: 5, line: 0, clock: '14:40', markdown: 'hi' })]);
+  });
+});
+
+describe('search hits', () => {
+  it('reads the matched line without Markdown syntax', () => {
+    const text = '# Title\n\n- **Budget** line two\n> quoted [link](http://x) here\n';
+    expect(hitNeedle(text, 3)).toBe('budget line two');
+    expect(hitNeedle(text, 4)).toBe('quoted link here');
+    expect(hitNeedle(text, 1)).toBe('title');
+    expect(hitNeedle(text, 99)).toBe('');
+    expect(hitNeedle('a\r\nb  c\r\n', 2)).toBe('b c');
+    expect(normalizeText('  The *Big*   `plan` ')).toBe('the big plan');
+  });
+
+  it('finds the rendered line that holds the match', () => {
+    expect(lineIndexContaining(['Alpha line', 'The Budget line two', 'gamma'], 'budget line two')).toBe(1);
+    expect(lineIndexContaining(['Alpha'], 'missing')).toBe(-1);
+    expect(lineIndexContaining(['Alpha'], '')).toBe(-1);
+  });
+
+  it('builds the absolute path of a vault file', () => {
+    expect(absolutePath('C:\\Vault\\', 'Work/a b.md')).toBe('C:\\Vault\\Work\\a b.md');
+    expect(absolutePath('C:\\Vault', 'a.md')).toBe('C:\\Vault\\a.md');
   });
 });
