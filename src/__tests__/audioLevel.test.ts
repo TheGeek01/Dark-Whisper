@@ -105,4 +105,15 @@ describe('SilenceTracker', () => {
     expect(tracker.splitPoint(1, 7, 5)).toBe(1);
     expect(tracker.splitPoint(1, 4, 5)).toBeNull();
   });
+
+  it('knows whether anyone spoke in a stretch of audio', () => {
+    const tracker = new SilenceTracker();
+    expect(tracker.hasSpeech(0, 5)).toBeNull();
+    feed(tracker, 0, 3, -20);
+    feed(tracker, 3, 10, -45);
+    expect(tracker.hasSpeech(0, 5)).toBe(true);
+    expect(tracker.hasSpeech(4, 10)).toBe(false);
+    expect(tracker.hasSpeech(2.9, 10)).toBe(true);
+    expect(tracker.hasSpeech(20, 30)).toBeNull();
+  });
 });

@@ -1,5 +1,14 @@
-import type { SplitFinder } from './audioLevel';
+import type { SpeechAudio } from './audioLevel';
 import { BlockRef, formatClockLine, hashText, ReplaceOutcome } from './documentStore';
+import { isNoiseSegment } from './streamOutput';
+
+// whisper-stream transcribes its last 10 s of audio each time it hears a pause; allow for the
+// time that takes.
+const LIVE_WINDOW_SEC = 12;
+// The lines of one transcribed window arrive together.
+const SAME_WINDOW_SEC = 0.5;
+
+export type RefineOutcome = ReplaceOutcome | 'no-speech';
 
 export type SessionState = 'recording' | 'paused' | 'stopped';
 
@@ -44,7 +53,7 @@ export interface SessionDeps {
   // A paragraph closes after this long even without a pause.
   blockMinutes: number;
   silenceGapSec: number;
-  silence: SplitFinder;
+  silence: SpeechAudio;
   now(): Date;
 }
 
@@ -73,6 +82,8 @@ export class SessionService {
   private openedAny = false;
   private baseDurationSec = 0;
   private launches = 0;
+  private lastArrivalSec: number | null = null;
+  private lastArrivalKept = true;
 
   constructor(private readonly deps: SessionDeps) {}
 
@@ -120,6 +131,8 @@ export class SessionService {
     this.openedAny = false;
     this.baseDurationSec = args.baseDurationSec ?? 0;
     this.launches = 0;
+    this.lastArrivalSec = null;
+    this.lastArrivalKept = true;
     this.info = { id: args.id, documentPath: args.documentPath, state: 'recording', blockIndex: 0, durationSec: 0 };
   }
 
@@ -187,9 +200,24 @@ export class SessionService {
     return split === null ? null : Math.min(atSec, Math.max(block.lastSegmentSec, split));
   }
 
-  segment(s: { text: string; atMs: number }): void {
-    if (this.info.state !== 'recording') return;
+  // whisper-stream sometimes transcribes silence ("Thank you.", "you") or repeats words it
+  // already sent. Live text is kept only if someone spoke since the previous text; lines of one
+  // window share that decision. With no audio to judge by, everything is kept.
+  private heardSpeech(atSec: number): boolean {
+    const previous = this.lastArrivalSec;
+    if (previous !== null && atSec - previous < SAME_WINDOW_SEC) return this.lastArrivalKept;
+    const from = Math.max(previous ?? 0, atSec - LIVE_WINDOW_SEC, 0);
+    return this.deps.silence.hasSpeech(from, atSec) !== false;
+  }
+
+  // Returns whether the text was written.
+  segment(s: { text: string; atMs: number }): boolean {
+    if (this.info.state !== 'recording') return false;
     const atSec = s.atMs / 1000;
+    const kept = this.heardSpeech(atSec);
+    this.lastArrivalSec = atSec;
+    this.lastArrivalKept = kept;
+    if (!kept) return false;
     if (this.open) {
       const split = this.splitPoint(this.open, atSec);
       if (split !== null) this.closeOpen(split);
@@ -199,6 +227,7 @@ export class SessionService {
     block.lastSegmentSec = atSec;
     this.info = { ...this.info, durationSec: Math.max(this.info.durationSec, atSec) };
     this.emit();
+    return true;
   }
 
   // whisper-stream crashed and came back: the paragraph ends where the engine stopped hearing.
@@ -230,12 +259,20 @@ export class SessionService {
     this.emit();
   }
 
-  applyRefinement(blockIndex: number, text: string): ReplaceOutcome {
+  // A refinement that heard nothing (silence, a stray ".") keeps the live text. whisper-server
+  // starts each line after the first with a space; those are trimmed.
+  applyRefinement(blockIndex: number, text: string): RefineOutcome {
     const hash = this.hashes.get(blockIndex);
     if (hash === undefined) return 'missing';
-    const outcome = this.deps.store.replaceBlock(this.info.documentPath, blockIndex, text, hash);
+    if (isNoiseSegment(text)) return 'no-speech';
+    const clean = text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '')
+      .join('\n');
+    const outcome = this.deps.store.replaceBlock(this.info.documentPath, blockIndex, clean, hash);
     if (outcome === 'replaced') {
-      this.hashes.set(blockIndex, hashText(text));
+      this.hashes.set(blockIndex, hashText(clean));
     }
     return outcome;
   }

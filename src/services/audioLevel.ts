@@ -29,10 +29,12 @@ export function meterLevel(db: number): number {
   return Math.min(1, Math.max(0, (db - LEVEL_FLOOR_DB) / -LEVEL_FLOOR_DB));
 }
 
-export interface SplitFinder {
+export interface SpeechAudio {
   // Where the block holding the segment that arrived at afterSec should end, given that the next
   // segment arrived at beforeSec; null to keep both in one block.
   splitPoint(afterSec: number, beforeSec: number, gapSec: number): number | null;
+  // Whether any speech was heard in (fromSec, toSec]; null when no audio covers it.
+  hasSpeech(fromSec: number, toSec: number): boolean | null;
 }
 
 interface LevelSample {
@@ -42,7 +44,7 @@ interface LevelSample {
   db: number;
 }
 
-export class SilenceTracker implements SplitFinder {
+export class SilenceTracker implements SpeechAudio {
   private samples: LevelSample[] = [];
 
   add(startSec: number, durationSec: number, db: number): void {
@@ -57,6 +59,11 @@ export class SilenceTracker implements SplitFinder {
     recent.push(current);
     recent.sort((a, b) => a - b);
     return Math.min(recent[Math.floor((recent.length - 1) * FLOOR_PERCENTILE)], FLOOR_CAP_DB);
+  }
+
+  hasSpeech(fromSec: number, toSec: number): boolean | null {
+    const covering = this.samples.filter((s) => s.endSec > fromSec && s.startSec < toSec);
+    return covering.length === 0 ? null : covering.some((s) => s.speech);
   }
 
   splitPoint(afterSec: number, beforeSec: number, gapSec: number): number | null {

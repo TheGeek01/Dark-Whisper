@@ -433,6 +433,7 @@ export async function startSession(request: SessionStartRequest): Promise<Sessio
     silence: {
       splitPoint: (afterSec, beforeSec, gapSec) =>
         (ctx?.audio?.silence ?? NO_AUDIO).splitPoint(afterSec, beforeSec, gapSec),
+      hasSpeech: (fromSec, toSec) => (ctx?.audio?.silence ?? NO_AUDIO).hasSpeech(fromSec, toSec),
     },
     now: () => new Date(),
   });
@@ -559,7 +560,7 @@ export async function openVault(): Promise<void> {
 // Engine → session plumbing, registered once.
 streamEngine.onSegment((segment) => {
   if (!isSessionActive() || !current) return;
-  current.service.segment(segment);
+  if (!current.service.segment(segment)) return;
   const blockIndex = current.service.getInfo().blockIndex;
   for (const l of segmentListeners) l({ text: segment.text, blockIndex });
 });

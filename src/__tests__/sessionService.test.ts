@@ -2,6 +2,7 @@ import { BlockRef, hashText } from '../services/documentStore';
 import { RefineJob, SessionBlockEvent, SessionService, SessionStoreLike } from '../services/sessionService';
 
 type SplitFn = (afterSec: number, beforeSec: number, gapSec: number) => number | null;
+type SpeechFn = (fromSec: number, toSec: number) => boolean | null;
 
 const DATE_CLOCK = '**2026-09-16 14:32**';
 
@@ -39,13 +40,17 @@ function fakeStore() {
   return { store, blocks, opened, ranges, getDuration: () => duration };
 }
 
-function setup(options: { blockMinutes?: number; split?: SplitFn; firstBlockIndex?: number; baseDurationSec?: number } = {}) {
+function setup(
+  options: { blockMinutes?: number; split?: SplitFn; speech?: SpeechFn; firstBlockIndex?: number; baseDurationSec?: number } = {},
+) {
   const fake = fakeStore();
   const jobs: RefineJob[] = [];
   const events: SessionBlockEvent[] = [];
   const calls: [number, number, number][] = [];
   const clock = { now: new Date(2026, 8, 16, 14, 32) };
   const split = options.split ?? (() => null);
+  const speechCalls: [number, number][] = [];
+  const speech = options.speech ?? (() => null);
   const service = new SessionService({
     store: fake.store,
     enqueueRefine: (job) => jobs.push(job),
@@ -55,6 +60,10 @@ function setup(options: { blockMinutes?: number; split?: SplitFn; firstBlockInde
       splitPoint: (afterSec, beforeSec, gapSec) => {
         calls.push([afterSec, beforeSec, gapSec]);
         return split(afterSec, beforeSec, gapSec);
+      },
+      hasSpeech: (fromSec, toSec) => {
+        speechCalls.push([fromSec, toSec]);
+        return speech(fromSec, toSec);
       },
     },
     now: () => clock.now,
@@ -66,7 +75,7 @@ function setup(options: { blockMinutes?: number; split?: SplitFn; firstBlockInde
     firstBlockIndex: options.firstBlockIndex,
     baseDurationSec: options.baseDurationSec,
   });
-  return { service, jobs, events, calls, clock, ...fake };
+  return { service, jobs, events, calls, speechCalls, clock, ...fake };
 }
 
 describe('SessionService', () => {
@@ -258,7 +267,7 @@ describe('SessionService', () => {
       enqueueRefine: (job) => order.push(`job ${job.blockIndex}`),
       blockMinutes: 2,
       silenceGapSec: 5,
-      silence: { splitPoint: () => null },
+      silence: { splitPoint: () => null, hasSpeech: () => null },
       now: () => new Date(2026, 8, 16, 14, 32),
     });
     service.onBlock((event) => order.push(`${event.state} ${event.blockIndex}`));
@@ -326,5 +335,53 @@ describe('SessionService', () => {
     ctx.service.end();
     expect(ctx.jobs.map((job) => job.blockIndex)).toEqual([1]);
     expect(ctx.events.filter((e) => e.state === 'edited').map((e) => e.blockIndex)).toEqual([2]);
+  });
+
+  it('drops live text when nobody spoke since the previous text', () => {
+    const ctx = setup({ speech: (from) => from < 2 });
+    expect(ctx.service.segment({ text: 'real words', atMs: 4_000 })).toBe(true);
+    expect(ctx.service.segment({ text: 'Thank you.', atMs: 15_000 })).toBe(false);
+    expect(ctx.blocks.get(1)).toBe('real words');
+    expect(ctx.opened).toHaveLength(1);
+    expect(ctx.speechCalls).toEqual([
+      [0, 4],
+      [4, 15],
+    ]);
+  });
+
+  it('looks back no further than the live engine window', () => {
+    const ctx = setup();
+    ctx.service.segment({ text: 'one', atMs: 2_000 });
+    ctx.service.segment({ text: 'two', atMs: 40_000 });
+    expect(ctx.speechCalls[1]).toEqual([28, 40]);
+  });
+
+  it('keeps or drops all lines of one live window together', () => {
+    const ctx = setup({ speech: (from) => from < 1 });
+    expect(ctx.service.segment({ text: 'first line', atMs: 3_000 })).toBe(true);
+    expect(ctx.service.segment({ text: 'second line', atMs: 3_200 })).toBe(true);
+    expect(ctx.service.segment({ text: 'again', atMs: 9_000 })).toBe(false);
+    expect(ctx.service.segment({ text: 'and again', atMs: 9_100 })).toBe(false);
+    expect(ctx.speechCalls).toHaveLength(2);
+    expect(ctx.blocks.get(1)).toBe('first line second line');
+  });
+
+  it('keeps live text when there is no audio to judge by', () => {
+    const ctx = setup();
+    expect(ctx.service.segment({ text: 'kept', atMs: 1_000 })).toBe(true);
+    expect(ctx.blocks.get(1)).toBe('kept');
+  });
+
+  it('keeps the live text when refinement hears nothing, and tidies refined lines', () => {
+    const ctx = setup();
+    ctx.service.segment({ text: 'rough', atMs: 1_000 });
+    ctx.service.setPaused(true, 2_000);
+    ctx.service.setPaused(false, 3_000);
+    ctx.service.segment({ text: 'more', atMs: 4_000 });
+    ctx.service.end();
+    expect(ctx.service.applyRefinement(1, ' . ')).toBe('no-speech');
+    expect(ctx.blocks.get(1)).toBe('rough');
+    expect(ctx.service.applyRefinement(2, ' More words.\n  And a second line. \n')).toBe('replaced');
+    expect(ctx.blocks.get(2)).toBe('More words.\nAnd a second line.');
   });
 });

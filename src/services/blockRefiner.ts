@@ -21,7 +21,7 @@ export interface RefineDeps {
   sliceAudio(job: RefineJob): Promise<string | null>;
   transcribe(wavPath: string): Promise<string>;
   cleanup(wavPath: string): void;
-  apply(blockIndex: number, text: string): 'replaced' | 'skipped-edited' | 'missing';
+  apply(blockIndex: number, text: string): 'replaced' | 'skipped-edited' | 'missing' | 'no-speech';
   report(event: RefineEvent): void;
 }
 
@@ -88,6 +88,8 @@ export class RefineQueue {
         const outcome = this.deps.apply(job.blockIndex, text);
         if (outcome === 'replaced') {
           this.deps.report({ kind: 'replaced', blockIndex: job.blockIndex });
+        } else if (outcome === 'no-speech') {
+          this.deps.report({ kind: 'skipped', blockIndex: job.blockIndex, message: 'no speech heard; live text kept' });
         } else if (outcome === 'skipped-edited') {
           this.deps.report({ kind: 'skipped', blockIndex: job.blockIndex, message: 'block edited since transcription' });
         } else {
