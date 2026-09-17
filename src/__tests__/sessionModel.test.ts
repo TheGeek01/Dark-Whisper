@@ -3,10 +3,15 @@ import {
   applyBlock,
   applySegment,
   applyStatus,
+  BLOCK_LABELS,
+  blockTime,
   clearPendingText,
   emptySessionModel,
   isSessionRunning,
+  sessionDetailRows,
   sessionSummary,
+  sessionTitle,
+  stateLabel,
 } from '../renderer/sessionModel';
 import { getState, subscribe, update } from '../renderer/state';
 
@@ -75,6 +80,33 @@ describe('sessionModel', () => {
       [2, 'next'],
     ]);
     expect(clearPendingText(model).pendingText.size).toBe(0);
+  });
+
+  it('names the run and its state', () => {
+    expect(sessionTitle(status())).toBe('Session');
+    expect(sessionTitle(status({ kind: 'quick-note' }))).toBe('Quick Note');
+    expect(stateLabel(status())).toBe('Recording');
+    expect(stateLabel(status({ state: 'paused', muted: true }))).toBe('Paused (mic muted)');
+    expect(stateLabel(status({ state: 'stopped' }))).toBe('Stopped');
+    expect(BLOCK_LABELS.queued).toBe('pending');
+  });
+
+  it('lists the run details', () => {
+    expect(sessionDetailRows(status({ durationSec: 161, refining: 2, muted: true, folder: 'Work' }))).toEqual([
+      ['Microphone', 'Mic (muted)'],
+      ['Live model', 'base'],
+      ['Refine model', 'turbo'],
+      ['Elapsed time', '02:41'],
+      ['Waiting to refine', '2'],
+      ['Folder', 'Work'],
+    ]);
+    expect(sessionDetailRows(status({ microphone: '' }))[0]).toEqual(['Microphone', 'System default']);
+    expect(sessionDetailRows(status())[5]).toEqual(['Folder', 'Vault root']);
+  });
+
+  it('shows a paragraph by its clock time, else its start', () => {
+    expect(blockTime({ ...block(1, 'refined'), clock: '**2026-09-16 14:32**' })).toBe('14:32');
+    expect(blockTime({ ...block(2, 'refined'), clock: '' })).toBe('02:00');
   });
 
   it('knows when a session is running', () => {

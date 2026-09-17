@@ -1,4 +1,5 @@
 import type { BlockEvent, BlockState, SegmentEvent, SessionStatusView } from '../shared/api.js';
+import { clockOf, clockParts } from './documentView.js';
 import { formatClock } from './format.js';
 
 export interface SessionModel {
@@ -22,7 +23,7 @@ const RANK: Record<BlockState, number> = {
 export const BLOCK_LABELS: Record<BlockState, string> = {
   live: 'live',
   empty: 'no speech',
-  queued: 'waiting',
+  queued: 'pending',
   refining: 'refining…',
   refined: 'refined',
   skipped: 'skipped',
@@ -74,11 +75,33 @@ export function clearPendingText(model: SessionModel): SessionModel {
   return model.pendingText.size === 0 ? model : { ...model, pendingText: new Map() };
 }
 
+export function stateLabel(status: SessionStatusView): string {
+  if (status.state === 'idle') return 'No session';
+  if (status.state === 'paused' && status.muted) return 'Paused (mic muted)';
+  return status.state.charAt(0).toUpperCase() + status.state.slice(1);
+}
+
 export function sessionSummary(status: SessionStatusView): string {
   if (status.state === 'idle') return 'No session';
-  const label =
-    status.state === 'paused' && status.muted
-      ? 'Paused (mic muted)'
-      : status.state.charAt(0).toUpperCase() + status.state.slice(1);
-  return `${label} · ${formatClock(status.durationSec)}`;
+  return `${stateLabel(status)} · ${formatClock(status.durationSec)}`;
+}
+
+export function sessionTitle(status: SessionStatusView): string {
+  return status.kind === 'quick-note' ? 'Quick Note' : 'Session';
+}
+
+export function sessionDetailRows(status: SessionStatusView): [string, string][] {
+  const microphone = status.microphone || 'System default';
+  return [
+    ['Microphone', status.muted === true ? `${microphone} (muted)` : microphone],
+    ['Live model', status.liveModel],
+    ['Refine model', status.refineModel],
+    ['Elapsed time', formatClock(status.durationSec)],
+    ['Waiting to refine', String(status.refining)],
+    ['Folder', status.folder || 'Vault root'],
+  ];
+}
+
+export function blockTime(block: BlockEvent): string {
+  return clockParts(clockOf(block.clock)).time || formatClock(block.startSec);
 }
