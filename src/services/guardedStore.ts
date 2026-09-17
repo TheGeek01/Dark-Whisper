@@ -37,6 +37,12 @@ export class GuardedStore implements SessionStoreLike {
     this.noteWrite(file);
   }
 
+  setBlockRange(file: string, block: BlockRef): void {
+    this.checkForOutsideEdit(file);
+    this.store.setBlockRange(file, block);
+    this.noteWrite(file);
+  }
+
   appendSegment(file: string, text: string): void {
     this.checkForOutsideEdit(file);
     this.store.appendSegment(file, text);

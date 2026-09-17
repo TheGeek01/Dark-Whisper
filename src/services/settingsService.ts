@@ -3,7 +3,8 @@ import * as path from 'path';
 import { app } from 'electron';
 import Store from 'electron-store';
 import type { RefineMode } from './blockRefiner';
-import { initialServerMode, ServerMode } from './settingsMigration';
+import type { ThemeName } from '../shared/api';
+import { clampSilenceGap, DEFAULT_SILENCE_GAP_SECONDS, initialServerMode, normalizeTheme, ServerMode } from './settingsMigration';
 
 export interface Settings {
   shortcut: string;
@@ -22,7 +23,8 @@ export interface Settings {
   refineWithExternalApi: boolean;
   blockMinutes: number;
   keepSessionAudio: boolean;
-  timestampHeadings: boolean;
+  silenceGapSeconds: number;
+  theme: ThemeName;
   captureDeviceName: string;
 }
 
@@ -50,7 +52,8 @@ const store = new Store({
     refineWithExternalApi: false,
     blockMinutes: 2,
     keepSessionAudio: false,
-    timestampHeadings: false,
+    silenceGapSeconds: DEFAULT_SILENCE_GAP_SECONDS,
+    theme: 'dark',
     captureDeviceName: '',
   },
 }) as unknown as Store<Settings>;
@@ -79,7 +82,8 @@ export function getSettings(): Settings {
     refineWithExternalApi: storeAny.get('refineWithExternalApi', false),
     blockMinutes: storeAny.get('blockMinutes', 2),
     keepSessionAudio: storeAny.get('keepSessionAudio', false),
-    timestampHeadings: storeAny.get('timestampHeadings', false),
+    silenceGapSeconds: clampSilenceGap(storeAny.get('silenceGapSeconds', DEFAULT_SILENCE_GAP_SECONDS)),
+    theme: normalizeTheme(storeAny.get('theme', 'dark')),
     captureDeviceName: storeAny.get('captureDeviceName', ''),
   };
 }

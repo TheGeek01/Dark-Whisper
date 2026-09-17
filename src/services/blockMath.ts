@@ -16,17 +16,6 @@ export interface AudioSlice {
   endByte: number;
 }
 
-export function blockRange(index: number, blockMinutes: number): { startSec: number; endSec: number } {
-  const length = blockMinutes * 60;
-  return { startSec: (index - 1) * length, endSec: index * length };
-}
-
-export function formatTimestampHeading(startSec: number): string {
-  const total = Math.floor(startSec);
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `## ${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
-}
-
 function alignToSample(bytes: number): number {
   return Math.floor(bytes / BYTES_PER_SAMPLE) * BYTES_PER_SAMPLE;
 }

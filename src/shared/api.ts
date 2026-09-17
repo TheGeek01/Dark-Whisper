@@ -3,6 +3,7 @@
 
 export type ServerMode = 'builtin' | 'external';
 export type RefineMode = 'auto' | 'always' | 'afterStop';
+export type ThemeName = 'dark' | 'light';
 
 export interface ServerStatusView {
   state: 'no-model' | 'starting' | 'ready' | 'error' | 'stopped';
@@ -55,7 +56,8 @@ export interface SettingsView {
   refineWithExternalApi: boolean;
   blockMinutes: number;
   keepSessionAudio: boolean;
-  timestampHeadings: boolean;
+  silenceGapSeconds: number;
+  theme: ThemeName;
   captureDeviceName: string;
 }
 

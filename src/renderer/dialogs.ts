@@ -81,7 +81,7 @@ function settingsFields() {
     language: byId<HTMLInputElement>('languageInput'),
     blockMinutes: byId<HTMLInputElement>('blockMinutesInput'),
     refineMode: byId<HTMLSelectElement>('refineModeInput'),
-    timestampHeadings: byId<HTMLInputElement>('timestampHeadingsInput'),
+    silenceGap: byId<HTMLInputElement>('silenceGapInput'),
     keepAudio: byId<HTMLInputElement>('keepAudioInput'),
   };
 }
@@ -129,7 +129,7 @@ export async function openSettings(): Promise<void> {
   f.language.value = settings.language;
   f.blockMinutes.value = String(settings.blockMinutes);
   f.refineMode.value = settings.refineDuringRecording;
-  f.timestampHeadings.checked = settings.timestampHeadings;
+  f.silenceGap.value = String(settings.silenceGapSeconds);
   f.keepAudio.checked = settings.keepSessionAudio;
   syncServerMode();
   byId<HTMLDialogElement>('settingsDialog').showModal();
@@ -160,7 +160,7 @@ async function saveSettingsFromDialog(): Promise<void> {
       language: f.language.value.trim() || 'en',
       blockMinutes: Math.max(1, Math.min(30, Number(f.blockMinutes.value) || 2)),
       refineDuringRecording: f.refineMode.value as RefineMode,
-      timestampHeadings: f.timestampHeadings.checked,
+      silenceGapSeconds: Math.max(1, Math.min(60, Math.round(Number(f.silenceGap.value) || 5))),
       keepSessionAudio: f.keepAudio.checked,
     });
     byId<HTMLDialogElement>('settingsDialog').close();

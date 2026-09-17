@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { DocumentStore, Frontmatter } from '../services/documentStore';
+import { SilenceTracker } from '../services/audioLevel';
 import { GuardedStore } from '../services/guardedStore';
 import { RefineJob, SessionBlockEvent, SessionService } from '../services/sessionService';
 
@@ -17,6 +18,8 @@ const FM: Frontmatter = {
   refineModel: 'ggml-large-v3-turbo-q5_0.bin',
   app: 'dark-whisper 1.2.1',
 };
+
+const CLOCK = '**2026-09-16 14:32**';
 
 function wire() {
   const vault = fs.mkdtempSync(path.join(os.tmpdir(), 'dw-outside-edit-'));
@@ -34,8 +37,11 @@ function wire() {
   const service = new SessionService({
     store,
     enqueueRefine: (job) => jobs.push(job),
-    blockMinutes: 2,
-    timestampHeadings: false,
+    blockMinutes: 10,
+    silenceGapSec: 5,
+    // No audio: paragraphs split when segments arrive at least 5 s apart.
+    silence: new SilenceTracker(),
+    now: () => new Date(2026, 8, 16, 14, 32),
   });
   holder.service = service;
   service.onBlock((event) => events.push(event));
@@ -54,7 +60,7 @@ describe('outside edits during a session', () => {
     w.service.segment({ text: 'next block', atMs: 125_000 });
 
     expect(w.jobs).toEqual([]);
-    expect(w.events).toContainEqual({ blockIndex: 1, startSec: 0, endSec: 120, state: 'edited' });
+    expect(w.events).toContainEqual({ blockIndex: 1, startSec: 0, endSec: 5, state: 'edited', clock: CLOCK });
     expect(fs.readFileSync(w.file, 'utf8')).toContain('hell o take us to the limit');
   });
 
@@ -65,7 +71,7 @@ describe('outside edits during a session', () => {
     w.service.end();
 
     expect(w.jobs).toEqual([]);
-    expect(w.events).toContainEqual({ blockIndex: 1, startSec: 0, endSec: 5, state: 'edited' });
+    expect(w.events).toContainEqual({ blockIndex: 1, startSec: 0, endSec: 5, state: 'edited', clock: CLOCK });
   });
 
   it('still refines untouched blocks and skips a finished block edited later', () => {
@@ -74,7 +80,7 @@ describe('outside edits during a session', () => {
     w.service.segment({ text: 'two', atMs: 125_000 });
     w.service.segment({ text: 'three', atMs: 245_000 });
     w.edit('one', 'one corrected');
-    w.service.segment({ text: 'four', atMs: 250_000 });
+    w.service.segment({ text: 'four', atMs: 247_000 });
     w.service.end();
 
     expect(w.reports).toEqual([[1]]);

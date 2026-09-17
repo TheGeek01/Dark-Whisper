@@ -1,26 +1,9 @@
 import {
-  blockRange,
   slicesForRange,
   wavHeader,
-  formatTimestampHeading,
   BYTES_PER_SECOND,
   WAV_HEADER_BYTES,
 } from '../services/blockMath';
-
-describe('blockRange', () => {
-  it('maps 1-based block indices onto the audio clock', () => {
-    expect(blockRange(1, 2)).toEqual({ startSec: 0, endSec: 120 });
-    expect(blockRange(3, 2)).toEqual({ startSec: 240, endSec: 360 });
-    expect(blockRange(1, 5)).toEqual({ startSec: 0, endSec: 300 });
-  });
-});
-
-describe('formatTimestampHeading', () => {
-  it('formats hours, minutes and seconds', () => {
-    expect(formatTimestampHeading(0)).toBe('## 00:00:00');
-    expect(formatTimestampHeading(3725)).toBe('## 01:02:05');
-  });
-});
 
 describe('slicesForRange', () => {
   const single = [{ file: 'a.wav', startSec: 0, durationSec: 600 }];

@@ -9,6 +9,7 @@ import { DocumentStore, Frontmatter } from './documentStore';
 import { GuardedStore } from './guardedStore';
 import { MicMuteService } from './micMuteService';
 import { buildShimArgs, parseMuteOutput } from './micMuteOutput';
+import { SilenceTracker } from './audioLevel';
 import { RefineJob, SessionService } from './sessionService';
 import { newSessionId } from './sessionPaths';
 import { CaptureDevice } from './streamOutput';
@@ -35,6 +36,8 @@ const OUTSIDE_EDIT_MESSAGE =
 const EDITED_BLOCK_MESSAGE = 'block edited outside the app';
 const AUDIO_REMOVE_ATTEMPTS = 5;
 const AUDIO_REMOVE_RETRY_MS = 1000;
+// Used before the recorder has started: with no audio, paragraphs split on segment arrival gaps.
+const NO_AUDIO = new SilenceTracker();
 
 // Everything one session owns. A stopped session keeps refining in the background after a new
 // one starts, so its callbacks must never reach for "the current session".
@@ -350,7 +353,7 @@ async function applyPause(paused: boolean, source: 'app' | 'mic'): Promise<void>
     ctx.pausedByApp = false;
   }
   streamEngine.setPaused(paused);
-  ctx.service.setPaused(paused);
+  ctx.service.setPaused(paused, streamEngine.elapsedMs());
   emit();
 }
 
@@ -398,7 +401,12 @@ export async function startSession(folder = ''): Promise<SessionStatusView> {
     store,
     enqueueRefine: (job) => ctx?.queue.enqueue(job),
     blockMinutes: settings.blockMinutes,
-    timestampHeadings: settings.timestampHeadings,
+    silenceGapSec: settings.silenceGapSeconds,
+    silence: {
+      splitPoint: (afterSec, beforeSec, gapSec) =>
+        (ctx?.audio?.silence ?? NO_AUDIO).splitPoint(afterSec, beforeSec, gapSec),
+    },
+    now: () => new Date(),
   });
 
   const queue = new RefineQueue({
@@ -478,10 +486,11 @@ export async function resumeSession(): Promise<void> {
 export async function stopSession(): Promise<void> {
   const ctx = current;
   if (!ctx || ctx.stopped) return;
+  const atMs = streamEngine.elapsedMs();
   const audioStopped = stopLiveEngine();
   micMute.stop();
   const unmute = ctx.pausedByApp;
-  ctx.service.end();
+  ctx.service.end(atMs);
   ctx.stopped = true;
   emit();
   if (unmute) {
@@ -509,8 +518,8 @@ streamEngine.onSegment((segment) => {
   const blockIndex = current.service.getInfo().blockIndex;
   for (const l of segmentListeners) l({ text: segment.text, blockIndex });
 });
-// SoX keeps recording across engine relaunches, so the audio timeline stays continuous and
-// only the document needs a gap marker, which sessionService writes from its own launch count.
+// SoX keeps recording across engine relaunches, so the audio timeline stays continuous; the
+// service ends the paragraph at the relaunch.
 streamEngine.onLaunch((launch) => {
   if (isSessionActive()) current?.service.launch(launch);
   emit();
