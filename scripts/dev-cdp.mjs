@@ -3,19 +3,20 @@
 //   node scripts/dev-cdp.mjs "window.api.getSessionStatus()"
 import { pathToFileURL } from 'url';
 
-export async function connect(port = 9333, attempts = 60) {
+// type 'page' is the app window; 'node' is the main process when Electron runs with --inspect=<port>.
+export async function connect(port = 9333, attempts = 60, type = 'page') {
   let targets = [];
   for (let i = 0; i < attempts; i++) {
     try {
       targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-      if (targets.some((t) => t.type === 'page')) break;
+      if (targets.some((t) => t.type === type)) break;
     } catch {
       // The app is not listening yet.
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  const page = targets.find((t) => t.type === 'page');
-  if (!page) throw new Error(`No app window on port ${port}`);
+  const page = targets.find((t) => t.type === type);
+  if (!page) throw new Error(`No ${type} target on port ${port}`);
 
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => {

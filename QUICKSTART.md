@@ -11,7 +11,7 @@
    ```bash
    npm run whisper:fetch
    ```
-   Downloads the official whisper.cpp CPU build pinned in `whisper.version` into `resources/whisper/cpu`: `whisper-server.exe` for dictation and refinement, and `whisper-stream.exe` plus `SDL2.dll` for live sessions. Without this the app starts but reports that the server is not installed.
+   Downloads the official whisper.cpp CPU build pinned in `whisper.version` into `resources/whisper/cpu`: `whisper-server.exe` for refinement, and `whisper-stream.exe` plus `SDL2.dll` for live sessions. Without this the app starts but reports that the server is not installed.
 
    For a GPU build, point `WHISPER_SERVER_DIR` at a folder containing your own Vulkan `whisper-server.exe`, or use the `whisper-server` artifact from a CI run.
 
@@ -47,8 +47,8 @@ npm start
 ## First Run Checklist
 
 - ✅ App appears in system tray (the window starts hidden — open it with tray → Show/Hide)
-- ✅ Status line shows `No model installed`, then download a model from the banner or the 🧠 button
-- ✅ Status line turns green: `Ready — <model> (GPU/CPU)`
+- ✅ Status line shows `No model installed`, then download a model from the banner or the model chip in the header
+- ✅ Status line turns green: `Ready` (hover for the model and GPU/CPU)
 - ✅ Microphone is working and permitted in Windows
 - ✅ `Ctrl+Q` is not bound to another app
 - ✅ Check Windows Sound settings if no audio captured
@@ -58,19 +58,18 @@ Using an external API instead? Set **Transcription server → External API** in 
 ## Testing
 
 1. Start the app and open the window from the tray
-2. Download `tiny.en` (74 MB) in the Models screen — smallest model, fastest to test with
+2. Download `tiny.en` (74 MB) and `base.en` (the default live model) in the Models screen
 3. Wait for the status line to read `Ready`
-4. Press **`Ctrl+Q`**, speak clearly: "Hello, this is a test"
+4. Press **`Ctrl+Q`**, say "Hello, this is a test", wait six seconds, and say "second paragraph"
 5. Press **`Ctrl+Q`** again to stop
-6. The transcription appears in the window and is pasted into whatever had focus
+6. `Quick Notes/<today>.md` opens: the first paragraph starts with the date and time, the second with the time; the Blocks section on the right shows each paragraph going pending → refining → refined
 
 ### Testing a session
 
-1. Also download `base.en` (the default live model)
-2. Click **Start session**; the new document opens in the centre and fills in as you speak
-3. Watch the Session panel on the right: blocks go live → waiting → refining → refined
-4. Tip: set **Minutes per block** to 1 to see refinement sooner
-5. Click **Stop**; the document stays selected in the library
+1. Select a folder in the library, click **Record**; the new document opens in the centre and fills in as you speak
+2. Click **Pause**, then **Resume**: a new paragraph starts with the time
+3. Tip: set **Start a new paragraph after this many seconds of silence** lower to see paragraphs split sooner
+4. Click **Stop**; the document stays selected in the library
 
 ### Testing the live engine alone
 
@@ -127,10 +126,10 @@ Prints each segment as you speak (Ctrl+C to stop). Add a capture id after the mo
 - `Model failed to load` → delete and re-download the model
 - Tick **Force CPU** in Settings if the GPU build misbehaves
 
-**`Ctrl+Q` not working?**
+**`Ctrl+Q` doesn't start a quick note?**
 - Close other apps using that shortcut, or change it in Settings
 - Check the console for hotkey registration errors
-- Remember the hotkey is ignored while the server is loading a model
+- A quick note cannot start while a session is recording
 
 **Session shows no text?**
 - Install the live model (`base.en` by default)

@@ -1,28 +1,25 @@
 # Dark-Whisper
 
-A Windows dictation workspace. Press a shortcut to dictate into any application, or start a **session** and Dark-Whisper writes a Markdown file as you speak, then quietly re-transcribes each finished block at higher quality.
+A Windows dictation workspace. Press `Ctrl+Q` to add a **quick note** to today's note file, or start a **session** and Dark-Whisper writes a Markdown document as you speak. Pauses in your speech start new paragraphs, each stamped with the time, and every finished paragraph is quietly re-transcribed at higher quality.
 
-Transcription runs on a **built-in [whisper.cpp](https://github.com/ggml-org/whisper.cpp) server** that ships with the app, so a fresh install needs nothing else: pick a speech model, and dictation works offline. You can still point the app at OpenAI's Whisper API or any other compatible server instead.
+Transcription runs on a **built-in [whisper.cpp](https://github.com/ggml-org/whisper.cpp) server** that ships with the app, so a fresh install needs nothing else: pick a speech model, and everything works offline. You can still point the app at OpenAI's Whisper API or any other compatible server instead.
 
 ## Features
 
-- **Workspace** - A library of your vault (folders, search), a live view of the document being written, and a panel showing each block's refinement
-- **Block Refinement** - Every two minutes the finished block is re-transcribed with your main model and replaced in the file, unless you have edited it
-- **Mic Mute as Pause** - Muting the microphone (in Windows or with a hardware key) pauses the session; the hotkey pauses and resumes it too
+- **Quick Notes** - `Ctrl+Q` (customizable) from any application starts a note in `Quick Notes/YYYY-MM-DD.md`; all of a day's notes go in one file, each starting with the date and time
+- **Sessions** - A Markdown document per meeting or idea, written live as you speak, in the folder you pick
+- **Timestamped Paragraphs** - A pause in speech (5 seconds by default) starts a new paragraph with the time; Pause and Resume do the same
+- **Paragraph Refinement** - Each finished paragraph is re-transcribed with your main model and replaced in the file, unless you have edited it
+- **Workspace** - Vault library with pinned Quick Notes, folder counts, recent documents and full-text search that jumps to the matching line; the document with its times in the margin; a details panel with each paragraph's refinement state
+- **Light and Dark Themes** - Switch from the header; the window draws its own title bar
+- **Mic Mute as Pause** - Muting the microphone (in Windows or with a hardware key) pauses recording
 - **Built-in Transcription Server** - Bundled whisper.cpp server, started and supervised by the app; no separate install
 - **Speech Model Manager** - Download SHA256-verified GGML models from Hugging Face, or paste your own model link
 - **GPU Acceleration** - Vulkan build works on NVIDIA, AMD and Intel GPUs, with automatic CPU fallback
-- **Global Hotkey Recording** - Press `Ctrl+Q` (customizable) from any application to start and stop recording
-- **Auto-Paste** - Transcribed text is automatically copied to clipboard and pasted into the active window
-- **Clipboard Preservation** - Original clipboard contents are restored after pasting
 - **Works Offline** - Nothing leaves your machine when using the built-in server
 - **External API Support** - Point at OpenAI's Whisper API or a self-hosted server instead
-- **System Tray Integration** - Minimizes to system tray with real-time recording and server status
-- **Configurable Settings** - Keyboard shortcut, microphone, auto-mute, server mode, API endpoint and token
-- **Auto-Mute** - Silences system audio while recording, then restores it
+- **System Tray Integration** - Runs from the system tray with recording and server status
 - **Auto-Start on Login** - Launches minimized at Windows startup
-- **Error Notifications** - System notifications for recording events and errors
-- **Auto Cleanup** - Automatically deletes recordings older than 7 days
 
 ## System Requirements
 
@@ -45,8 +42,8 @@ Transcription runs locally in a whisper.cpp server that ships with the app.
 
 **Setup:**
 1. Install and start the app
-2. Click **Download recommended model** on the setup banner (or the 🧠 button, then Download)
-3. Wait for the download, then dictate with `Ctrl+Q`
+2. Click **Download recommended model** on the setup banner (or the model chip in the header, then Download)
+3. Wait for the download, then press `Ctrl+Q` for a quick note or click **Record**
 
 **Pros:**
 - Complete privacy - audio never leaves your machine
@@ -113,7 +110,7 @@ Run a separate Whisper API server, for example [whisper-api](https://github.com/
 2. Run the installer and follow the setup wizard
 3. The application will appear in your system tray after installation
 4. Open the window from the tray and click **Download recommended model** on the setup banner
-5. Once the status line turns green (`Ready`), press `Ctrl+Q` anywhere to dictate
+5. Once the status line turns green (`Ready`), press `Ctrl+Q` anywhere for a quick note, or click **Record** for a session
 
 To use OpenAI or your own server instead, switch **Transcription server** to **External API** in Settings (see the options above).
 
@@ -152,37 +149,36 @@ For a GPU (Vulkan) server build, set `WHISPER_SERVER_DIR` to a folder containing
 
 ### Basic Operation
 
-1. The application runs in your system tray (bottom right corner)
-2. Press **`Ctrl+Q`** (or your configured shortcut) anywhere to start recording
-3. Speak clearly into your microphone
-4. Press the shortcut again to stop (recording also stops automatically after 5 minutes)
-5. Transcribed text appears in the app and is automatically pasted to the active application
+1. The application runs in your system tray (bottom right corner); open the window from there
+2. Press **`Ctrl+Q`** (or your configured shortcut) anywhere, or click **Quick Notes**, to start a quick note
+3. Speak; the note appears in `Quick Notes/YYYY-MM-DD.md` in your vault as you talk
+4. Press the shortcut again (or **Stop**) to finish
 
-If the built-in server is not ready, the hotkey does not record. Instead the app tells you why: no model installed (the Models screen opens), the model is still loading, or the server hit an error.
+Each quick note starts with a line like `**2026-09-16 14:32**`. Pause (or a few seconds of silence) ends the paragraph; when you resume, a new one starts with the time, e.g. `**14:35**`. Every note made on one day goes into the same file, even one that runs past midnight. A quick note cannot start while a session records, and a session cannot start during a quick note.
 
 ### The Workspace
 
 The window has three panes under a header:
 
-- **Header** — the server status, **Dictate** (quick dictation, with the last result and a Copy button), **Start session** / **Pause** / **Stop**, and the Models (🧠) and Settings (⚙️) dialogs.
-- **Library** (left) — every Markdown file in your vault, in its folders, newest first. Type to filter titles; press Enter (or pause) to search the text of every document; click a result to jump to the line. The ⋯ menu on a document renames, moves, opens it in your editor, shows it in Explorer or moves it to the Recycle Bin. **+ folder** creates a folder. Keyboard: ↑/↓, ←/→, Enter, F2 (rename), Delete, Ctrl+F (search).
-- **Document** (centre) — the selected document, read-only. ✎ renames, ⧉ copies the text, ↗ opens it in your editor. Edits you make elsewhere (Obsidian, VS Code) appear within a second.
-- **Session** (right, collapsible with ⟩) — state, microphone, models, target folder, every block's refinement state (click one to jump to it), and messages. With no session running it shows the selected document's details.
+- **Header** — status (Ready, Recording, Refining *n*, or a server problem with **Restart** and **Open log**), **Quick Notes**, the model chip (live → refine model; opens the Models dialog), **Record**, **Stop**, **Pause**, the theme switch and Settings.
+- **Library** (left) — search (Ctrl+K or Ctrl+F): type to filter titles, press Enter (or pause) to search the text of every document, and click a result to jump to and highlight that line. **VAULT** lists your folders with document counts, **Quick Notes** always first. Click a folder to make it the target for new sessions. The ⋯ menu on a document renames, moves, opens it in your editor, shows it in Explorer or moves it to the Recycle Bin. **RECENT** lists the five documents changed last. **New Session** starts a session in the selected folder; the ••• menu at the bottom creates a folder, changes the vault or shows it in Explorer. Keyboard: ↑/↓, ←/→, Enter, F2 (rename), Delete.
+- **Document** (centre) — the selected document, read-only, with each paragraph's time in the left margin. While it records, a level meter and a **Live** badge show at the top. The toolbar opens it in your editor, copies its path or text, changes the text size (**Aa**) and enters focus mode (Esc leaves). Edits you make elsewhere (Obsidian, VS Code) appear within a second.
+- **Details** (right, collapsible) — **Session** or **Quick Note** (state, microphone, models, elapsed time, waiting to refine, folder, messages), **Blocks** (each paragraph's time and refinement state; click one to jump to it) and **Document** (created, path, duration, language, models). Each section folds away.
 
 ### Recording a Session
 
 1. Select a folder in the library if the session belongs to a project (otherwise it goes to the vault root)
-2. Click **Start session** and speak. The new document opens in the centre and follows your words; scroll up to read back, and **Jump to live** to return
-3. Press the hotkey (or **Pause**) to pause, and again to resume. Muting your microphone pauses the session as well; unmuting resumes it
+2. Click **Record** (or **New Session**) and speak. The new document opens in the centre and follows your words; scroll up to read back, and **Jump to live** to return
+3. Click **Pause** to pause and **Resume** to carry on. Muting your microphone pauses as well; unmuting resumes
 4. Click **Stop** when you are done. The document cannot be renamed, moved or deleted while it is recording
 
-The live text comes from a small, fast model (`liveModelId`, `base.en` by default), which must be installed in the Models screen. Every two minutes of audio forms a **block**. When a block closes, its audio is sent to the built-in server, which re-transcribes it with your main model and replaces the block in the file. The session panel's "Waiting to refine" count shows the queue, and each block gets a status badge (waiting / refining… / refined) as it moves through it.
+The live text comes from a small, fast model (`liveModelId`, `base.en` by default), which must be installed in the Models screen. Each paragraph ends at a pause in your speech (the app measures the microphone level; 5 seconds by default), on Pause, or after **Longest paragraph** minutes. When a paragraph ends, its audio is sent to the built-in server, which re-transcribes it with your main model and replaces the paragraph in the file, keeping its time line. The details panel's "Waiting to refine" count shows the queue, and each paragraph gets a state (pending / refining… / refined). An earlier recording keeps refining after you start a new one.
 
-- **Your edits win.** A block you changed is never overwritten. If another program (an editor, Obsidian) changes the file while a session is recording, appending carries on, the blocks you edited are marked **skipped** in the Session panel, and every other block is still refined.
+- **Your edits win.** A paragraph you changed is never overwritten. If another program (an editor, Obsidian) changes the file while you record, appending carries on, the paragraphs you edited are marked **skipped**, and every other paragraph is still refined.
 - **Reload before you save.** An editor keeps its own copy of the file. The app keeps appending while you record, so accept your editor's "file changed, reload?" prompt before typing; saving an old copy overwrites the text written since.
-- **Memory.** With **Refine during recording** on *Auto*, refinement waits until you stop when the live and main models together exceed 2 GB. *Always* refines during the session; *After stopping* always waits.
-- **External API.** In External API mode, refinement is off unless you tick **Refine session blocks through this API**, because it would send your session audio to that server.
-- **Audio.** Session audio is recorded to `%APPDATA%\Dark-Whisper\sessions\<id>\` (about 115 MB per hour) and deleted once every block is refined, unless **Keep session audio** is on. Audio left behind by a crash is reported in the log at the next start and left on disk.
+- **Memory.** With **Refine during recording** on *Auto*, refinement waits until you stop when the live and main models together exceed 2 GB. *Always* refines while recording; *After stopping* always waits.
+- **External API.** In External API mode, refinement is off unless you tick **Refine session blocks through this API**, because it would send your audio to that server.
+- **Audio.** Recording audio is kept in `%APPDATA%\Dark-Whisper\sessions\<id>\` (about 115 MB per hour) and deleted once every paragraph is refined, unless **Keep session audio** is on. Audio left behind by a crash is reported in the log at the next start and left on disk.
 - A document looks like this:
 
 ```markdown
@@ -195,18 +191,20 @@ refineModel: ggml-large-v3-turbo-q5_0.bin
 ...
 ---
 
-<!-- dw:block 1 t=0-120 -->
-The refined text of the first two minutes.
+<!-- dw:block 1 t=0-38 -->
+**2026-09-16 10:06**
+The refined text of the first paragraph.
 
-<!-- dw:block 2 t=120-240 -->
+<!-- dw:block 2 t=38-95 -->
+**10:07**
 ...
 ```
 
-The `<!-- dw:block … -->` markers are how blocks are found again; leave them in place if you edit the file.
+The `<!-- dw:block … -->` markers and the time lines are how paragraphs are found again; leave them in place if you edit the file.
 
 ### Managing Speech Models
 
-Click the 🧠 button in the window, or **Models…** in the tray menu:
+Click the model chip in the header, or **Models…** in the tray menu:
 
 - **Download** a model from the list. `large-v3-turbo-q5_0` (547 MB) is recommended for GPUs; `small.en-q5_1` (181 MB) or `base.en` (141 MB) suit CPU-only machines.
 - **Use** switches the active model; the server restarts and reloads.
@@ -224,30 +222,32 @@ Downloads are verified against Hugging Face's SHA256 and checked for the GGML fo
    - **Force CPU** - Built-in only; use if GPU transcription fails or misbehaves
    - **API Endpoint** - External only; URL where the Whisper API is running
    - **API Token** - External only; authentication token if your API requires one
-   - **Keyboard Shortcut** - Change the hotkey (e.g., `Alt+R`, `F9`, etc.)
-   - **Microphone Device** - Choose which input device records
-   - **Auto-mute system audio** - Silence other audio while recording
-   - **Session microphone** - The microphone sessions use (the list fills in once a session has started)
-   - **Vault folder** - Where session documents are written; pick it with **Choose folder…** (default `Documents\Dark-Whisper`, created automatically on first start if it doesn't exist yet). A custom folder you choose is never created for you — if it goes missing, the library shows "Vault not found" until you choose or recreate it.
+   - **Quick note shortcut** - Change the hotkey (e.g., `Alt+R`, `F9`, etc.); applies straight away
+   - **Session microphone** - The microphone recordings use (the list fills in once a recording has started)
+   - **Vault folder** - Where documents are written; pick it with **Choose folder…** (default `Documents\Dark-Whisper`, created automatically on first start if it doesn't exist yet). A custom folder you choose is never created for you — if it goes missing, the library shows "Vault not found" until you choose or recreate it.
    - **Live model** - The fast model for live text (default `ggml-base.en.bin`)
-   - **Language** - Transcription language for sessions (default `en`)
-   - **Minutes per block** - How often a block closes and is refined (default 2)
+   - **Language** - Transcription language (default `en`)
+   - **Longest paragraph (minutes)** - A paragraph closes after this long even without a pause (default 2)
    - **Refine during recording** - *Auto*, *Always* or *After stopping*
-   - **Timestamp headings** - Write `## 00:02:00` at the start of each block
+   - **Start a new paragraph after this many seconds of silence** - 1–60 (default 5)
    - **Keep session audio** - Keep the WAV files after refinement
    - **Refine session blocks through this API** - External API only
+
+   The theme (dark or light) is switched with the moon/sun button in the header and remembered.
 
 4. Settings are saved when you click Save. Changing server mode or Force CPU restarts the server.
 
 ### Status Line
 
-The main window shows what the transcription server is doing:
+The header shows what is recording, or else what the transcription server is doing:
 
 | Indicator | Meaning |
 |-----------|---------|
+| Red, pulsing - `Recording` / `Quick note` | Something is recording |
+| Amber - `Paused` / `Refining 2` | Paused, or paragraphs still being refined |
 | Grey - `No model installed` | Download a model to finish setup |
 | Amber - `Loading model…` | The server is starting or reloading |
-| Green - `Ready — <model> (GPU/CPU)` | Ready to dictate, and which backend is in use |
+| Green - `Ready` | Ready; hover for the model and backend (GPU/CPU) |
 | Red - `Server error: …` | With **Restart** and **Open log** buttons |
 | Blue - `External API — <url>` | Using an external server |
 
@@ -255,50 +255,46 @@ The main window shows what the transcription server is doing:
 
 Right-click the Dark-Whisper icon in the system tray to:
 - **Show/Hide** - Toggle the application window
+- **Quick note (Ctrl+Q)** - Start or stop a quick note
 - **Models…** - Open the speech model manager
-- **Recording Status** - View current recording status
 - **Exit** - Close the application
 
-The tray tooltip mirrors the status line, or the session state while a session is running.
+The tray tooltip mirrors the status line, or the session or quick note state while one is recording.
 
 ## How It Works
 
-### Recording Flow
+### Quick Note Flow
 
 ```
 User presses Ctrl+Q
         ↓
-Audio recording starts (SoX, 16 kHz mono WAV)
+Quick Notes/YYYY-MM-DD.md opened (created if missing);
+  numbering continues after the paragraphs already in it
         ↓
-User presses Ctrl+Q again (or 5 minute limit)
+Recording runs exactly like a session (below)
         ↓
-Audio file POSTed to the transcription server
-  (built-in whisper.cpp, or your external API)
-        ↓
-Transcribed text received
-        ↓
-Text automatically pasted to active window
-        ↓
-Recording cleaned up
+User presses Ctrl+Q again → last paragraph queued for refinement
 ```
 
 ### Session Flow
 
 ```
-Start session
+Record (or a quick note)
         ↓
 whisper-stream.exe (live model) listens to the microphone;
-  SoX records the same microphone to session-<n>.wav
+  SoX streams the same microphone to the app, which writes
+  audio-<n>.wav and measures its level
         ↓
 Each finished sentence → appended to the .md file
         ↓
-Every 2 minutes of audio → block closed, its text hashed,
-  a refinement job queued
+A pause in speech (or Pause, or the length cap) → paragraph
+  closed, its text hashed, a refinement job queued;
+  the next words open a new paragraph with the time
         ↓
-Block audio sliced from the WAV → POSTed to whisper-server
-  → block replaced if its text still matches the hash
+Paragraph audio sliced from the WAV → POSTed to whisper-server
+  → paragraph replaced if its text still matches the hash
         ↓
-Stop → final block queued, duration written;
+Stop → final paragraph queued, duration written;
   audio deleted once the queue is empty
 ```
 
@@ -323,13 +319,11 @@ App quits → server is stopped
 
 - **Sample Rate:** 16000 Hz (optimized for speech recognition, and what whisper.cpp expects)
 - **Audio Format:** WAV/LPCM16 (PCM 16-bit mono)
-- **Maximum Recording:** 5 minutes per recording
 - **Request Timeout:** 5 minutes with the built-in server, 30 seconds with an external API
 - **Server Binding:** `127.0.0.1` only, on a port chosen at startup
-- **Storage Location:** `%APPDATA%\Dark-Whisper\recordings\`
 - **Model Location:** `%APPDATA%\Dark-Whisper\models\`
 - **Server Log:** `%APPDATA%\Dark-Whisper\logs\whisper-server.log` (last 500 lines, per run)
-- **Session Audio:** `%APPDATA%\Dark-Whisper\sessions\<id>\` (32 kB/s while recording)
+- **Recording Audio:** `%APPDATA%\Dark-Whisper\sessions\<id>\` (32 kB/s while recording)
 - **Live Engine Log:** `%APPDATA%\Dark-Whisper\logs\stream.log`
 - **Settings Storage:** Local JSON in AppData (electron-store)
 
@@ -347,14 +341,16 @@ C:\Users\[YourUsername]\AppData\Roaming\Dark-Whisper\
 | `modelId` | model file name | The active speech model |
 | `forceCpu` | `true` / `false` | Skip the GPU build |
 | `gpuFallbackVersion` | version string or `null` | Set when a GPU start failed, so CPU is used next time |
-| `shortcut`, `micDevice`, `autoMuteAudio`, `apiUrl`, `apiToken` | | As shown in Settings |
-| `vaultPath` | folder | Where session documents go |
+| `shortcut`, `apiUrl`, `apiToken` | | As shown in Settings |
+| `vaultPath` | folder | Where documents go |
 | `liveModelId` | model file name | Fast model for live text; default `ggml-base.en.bin` |
 | `language` | language code | Default `en` |
 | `refineDuringRecording` | `auto` / `always` / `afterStop` | Default `auto` |
 | `refineWithExternalApi` | `true` / `false` | Default `false` |
 | `blockMinutes` | 1-30 | Default `2` |
-| `keepSessionAudio`, `timestampHeadings` | `true` / `false` | Default `false` |
+| `silenceGapSeconds` | 1-60 | Seconds of silence that start a new paragraph; default `5` |
+| `theme` | `dark` / `light` | Default `dark` |
+| `keepSessionAudio` | `true` / `false` | Default `false` |
 | `captureDeviceName` | device name | Empty means the system default |
 
 **Upgrading from Whisper Desktop:** at first start, Dark-Whisper moves `config.json`, `models`, `logs` and `recordings` from `%APPDATA%\whisper-desktop\` (or `%APPDATA%\Whisper Desktop\`) into `%APPDATA%\Dark-Whisper\`, so settings and downloaded models carry over.
@@ -382,7 +378,7 @@ curl -X POST http://127.0.0.1:4444/v1/audio/transcriptions \
 
 ### Hotkey Not Working
 
-- **Problem:** Keyboard shortcut doesn't trigger recording
+- **Problem:** The shortcut doesn't start a quick note
 - **Solution:**
   - Check for keyboard shortcut conflicts with other applications
   - Verify the shortcut is set correctly in Settings
@@ -396,7 +392,7 @@ curl -X POST http://127.0.0.1:4444/v1/audio/transcriptions \
   - Verify microphone is connected and enabled
   - Check Windows Sound settings (Settings → Sound)
   - Test microphone in Windows Sound Recorder
-  - Pick the right input in Settings → **Microphone Device**
+  - Pick the right input in Settings → **Session microphone**
   - Restart the application
 
 ### Built-in Server Won't Start
@@ -410,7 +406,7 @@ curl -X POST http://127.0.0.1:4444/v1/audio/transcriptions \
 
 ### Transcription Is Slow
 
-- **Problem:** Dictation takes many seconds to come back
+- **Problem:** Paragraphs take a long time to be refined
 - **Solution:**
   - Check whether the status line says `(CPU)` — the app falls back to CPU when no Vulkan GPU is found
   - Update your GPU driver (Vulkan support ships with it), then click **Restart**
@@ -430,7 +426,7 @@ curl -X POST http://127.0.0.1:4444/v1/audio/transcriptions \
 
   **If using the Built-in Server:**
   - The error mentions the built-in server: click **Restart** in the main window
-  - Check the status line is green (`Ready`) before dictating
+  - Check the status line is green (`Ready`)
   - Check the server log via **Open log**
 
   **If using an External API Server:**
@@ -444,19 +440,11 @@ curl -X POST http://127.0.0.1:4444/v1/audio/transcriptions \
 
 - **"Live model … is not installed"** - download `base.en` (or whichever `liveModelId` you set) in the Models screen
 - **No text appears** - check the session microphone in Settings; a microphone that is no longer present falls back to the default and says so in the session line. `%APPDATA%\Dark-Whisper\logs\stream.log` has the engine's output
-- **"recording interrupted and resumed" in the file** - the live engine crashed and was restarted; the audio recording continued
-- **"File changed outside the app — edited blocks won't be refined"** - another program changed the document during the session. Blocks you edited keep your text and are marked skipped; the rest are still refined. Reload the file in your editor before saving
-- **Blocks are never refined** - the built-in server must be `Ready`; in External API mode refinement is off unless enabled in Settings
-
-### Text Not Pasting
-
-- **Problem:** Transcribed text doesn't appear in active window
-- **Solution:**
-  - Click on the target application window to give it focus
-  - Ensure application supports text input
-  - Try pasting manually (Ctrl+V) to verify clipboard works
-  - Some applications may have restrictions on automated pasting
-  - Restart the application
+- **A new paragraph started mid-sentence** - the live engine crashed and was restarted (the panel says so); the audio recording continued. Older documents show this as "recording interrupted and resumed"
+- **"File changed outside the app — edited blocks won't be refined"** - another program changed the document while recording. Paragraphs you edited keep your text and are marked skipped; the rest are still refined. Reload the file in your editor before saving
+- **Paragraphs split too often, or not at all** - change **Start a new paragraph after this many seconds of silence** in Settings. A very noisy room can hide pauses; the length cap still ends a paragraph
+- **"Could not open today's quick note"** - something blocks `Quick Notes/YYYY-MM-DD.md` in the vault (for example a folder with that name, or a file another program has locked)
+- **Paragraphs are never refined** - the built-in server must be `Ready`; in External API mode refinement is off unless enabled in Settings
 
 ### Microphone Permission Issues
 
@@ -498,16 +486,14 @@ Dark-Whisper/
 │   ├── shared/api.ts              # Types shared by main, preload and renderer
 │   ├── renderer/                  # Window code (ES modules → public/js)
 │   │   ├── app.ts, state.ts       # Entry point and app state
-│   │   ├── header.ts, library.ts, document.ts, sessionPanel.ts, dialogs.ts
-│   │   └── format.ts, libraryTree.ts, documentView.ts, sessionModel.ts   # DOM-free, tested
+│   │   ├── header.ts, library.ts, document.ts, sessionPanel.ts, dialogs.ts, theme.ts, levelMeter.ts
+│   │   └── format.ts, libraryTree.ts, documentView.ts, sessionModel.ts, headerModel.ts   # DOM-free, tested
 │   ├── services/
 │   │   ├── hotkeyService.ts       # Global keyboard shortcut handling
-│   │   ├── recordingService.ts    # SoX recording and device enumeration
-│   │   ├── audioControlService.ts # System audio mute/restore
-│   │   ├── pasteService.ts        # Clipboard write and Ctrl+V injection
+│   │   ├── soxPath.ts             # Bundled SoX location
 │   │   ├── apiService.ts          # Transcription HTTP client
 │   │   ├── settingsService.ts     # Settings persistence (electron-store)
-│   │   ├── settingsMigration.ts   # Server-mode default for new vs existing installs
+│   │   ├── settingsMigration.ts   # Setting defaults and clamping
 │   │   ├── modelCatalog.ts        # Curated model list, URL and GGML validation
 │   │   ├── modelManager.ts        # Model download, verify, list, delete
 │   │   ├── whisperServer.ts       # Server supervisor state machine
@@ -518,12 +504,17 @@ Dark-Whisper/
 │   │   ├── userDataMigration.ts   # Which legacy user-data entries to move
 │   │   ├── streamOutput.ts        # whisper-stream output parsing
 │   │   ├── streamEngine.ts        # Live engine supervisor
-│   │   ├── streamRuntime.ts       # Live engine and SoX session-audio wiring
+│   │   ├── streamRuntime.ts       # Live engine and SoX recording wiring
+│   │   ├── pcmFileSink.ts         # Writes SoX's raw audio to a WAV
+│   │   ├── audioLevel.ts          # Audio level and the silence rule for paragraphs
+│   │   ├── windowTheme.ts         # Title bar colours per theme
 │   │   ├── sessionPaths.ts        # Session ids and audio file names
 │   │   ├── documentStore.ts       # Vault Markdown files: append, blocks, hash guard, search
 │   │   ├── guardedStore.ts        # Detects outside edits between the app's own writes
-│   │   ├── blockMath.ts           # Block time ranges → WAV byte ranges
-│   │   ├── sessionService.ts      # One session: segments → document, blocks, jobs
+│   │   ├── guardRegistry.ts       # One guard per document, shared between recordings
+│   │   ├── quickNotes.ts          # The daily quick-note file; start rules
+│   │   ├── blockMath.ts           # Audio time ranges → WAV byte ranges
+│   │   ├── sessionService.ts      # One recording: segments → paragraphs, jobs
 │   │   ├── blockRefiner.ts        # Refinement queue and memory guard
 │   │   ├── micMuteOutput.ts       # Core Audio mute shim and its output
 │   │   ├── micMuteService.ts      # Microphone mute polling
@@ -531,14 +522,16 @@ Dark-Whisper/
 │   │   ├── libraryService.ts      # Vault tree, search, moves, path guard
 │   │   ├── libraryWatch.ts        # Change batching, polling diff
 │   │   └── libraryRuntime.ts      # Library IPC and vault watcher
-│   └── __tests__/                 # Unit tests (332 tests, 28 suites)
+│   └── __tests__/                 # Unit tests
 ├── public/
-│   └── index.html, app.css        # Workspace markup and dark theme
+│   └── index.html, app.css        # Workspace markup, dark and light themes
 ├── assets/
 │   └── whisper.ico                # Application icon
 ├── scripts/
 │   ├── fetch-whisper.js           # Dev: download pinned whisper.cpp CPU binaries
-│   └── stream-probe.js            # Dev: run the live engine alone
+│   ├── stream-probe.js            # Dev: run the live engine alone
+│   ├── dev-cdp.mjs                # Dev: evaluate in a running instance
+│   └── workspace-smoke.mjs        # End-to-end workspace checks
 ├── resources/whisper/             # Server binaries (generated, gitignored)
 ├── docs/superpowers/              # Design spec and implementation plan
 ├── dist/                          # Compiled JavaScript (generated)
@@ -549,7 +542,7 @@ Dark-Whisper/
 └── README.md                      # This file
 ```
 
-The `services` layer is deliberately split: the `*Runtime.ts` modules (and the settings, recording, paste and hotkey services) touch Electron; everything else is free of Electron imports, so it can be unit-tested directly.
+The `services` layer is deliberately split: the `*Runtime.ts` modules (and the settings, SoX path and hotkey services) touch Electron; everything else is free of Electron imports, so it can be unit-tested directly.
 
 ### Technology Stack
 
@@ -558,7 +551,6 @@ The `services` layer is deliberately split: the `*Runtime.ts` modules (and the s
 - **Transcription:** whisper.cpp `b5130` (CPU and Vulkan builds)
 - **HTTP Client:** Axios 1.20.0
 - **Audio Recording:** node-mic 1.0.1 (bundled SoX)
-- **Keystroke Injection:** @nut-tree-fork/libnut 4.2.6
 - **Settings Storage:** electron-store 11.0.2
 - **Build Tool:** electron-builder 26.15.3
 - **Testing:** Jest 30.5.1 with ts-jest
@@ -616,16 +608,15 @@ To view debug output and logs:
 
 - **Memory Usage:** 80-150MB for the app, plus the model held by the server while it runs (roughly 0.6-1.8 GB depending on the model)
 - **CPU:** Minimal except during recording and transcription; CPU transcription is the heavy case
-- **Storage:** Recordings are temporary and auto-deleted after 7 days; models stay until you delete them
-- **Startup:** The server loads the model once at launch, so the first dictation is not slower than the rest
+- **Storage:** Recording audio is deleted once refined; models stay until you delete them
+- **Startup:** The server loads the model once at launch, so the first refinement is not slower than the rest
 
 ## Limitations
 
 - **Windows Only:** Currently supports Windows 10 and later (x64) only
 - **One Server at a Time:** Either the built-in server or a single external endpoint
-- **One Session at a Time:** Quick dictation is refused while a session records, and the other way round
-- **Mute Pause Uses the Default Microphone:** pausing mutes the Windows default capture device, even if a session uses another microphone
-- **Manual Text Injection:** Uses system clipboard and Ctrl+V for pasting (some applications may not support this)
+- **One Recording at a Time:** A quick note is refused while a session records, and the other way round
+- **Mute Pause Uses the Default Microphone:** pausing mutes the Windows default capture device, even if a recording uses another microphone
 - **Audio Quality:** Dependent on microphone and system audio capture
 - **Internet Required:** For model downloads, and when using OpenAI's hosted service
 - **GPU Support:** Vulkan only; there is no CUDA-specific build
@@ -634,12 +625,11 @@ To view debug output and logs:
 
 Potential features for future releases:
 
-- [ ] Multi-language support in UI (quick dictation's language is currently fixed to English)
+- [ ] Multi-language support in the UI
 - [ ] Recording history and replay
 - [ ] Custom hotkey profiles
 - [ ] Batch transcription
 - [ ] macOS and Linux support
-- [ ] Voice activity detection / silence auto-stop
 - [ ] Model choice per language
 - [ ] Auto-update (electron-updater)
 
@@ -688,13 +678,22 @@ When reporting a transcription problem, please include the status line text and,
 - Local inference by [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (MIT)
 - Models hosted by [ggerganov/whisper.cpp on Hugging Face](https://huggingface.co/ggerganov/whisper.cpp)
 - Audio processing with [SoX](http://sox.sourceforge.net/)
-- Keystroke injection with [libnut](https://github.com/nut-tree/libnut-core)
 - Forked from [dniasoff/whisper-desktop](https://github.com/dniasoff/whisper-desktop)
 - Alternative external API: [whisper-api](https://github.com/dniasoff/whisper-api/)
 
 ## Changelog
 
-### Version 1.2.1 (Latest)
+### Version 1.3.0 (Latest)
+
+- Quick notes: Ctrl+Q (or Quick Notes in the header) records into one file per day in the Quick Notes folder, with a date and time at the start of each note.
+- Recordings are split into paragraphs after 5 seconds of silence (adjustable), each with its time in the margin. Each paragraph is refined on its own.
+- New look: a header with Record, Stop and Pause, a sidebar with pinned Quick Notes, folder counts and recent documents, a collapsible details panel, and a light theme.
+- Search results now jump to the matching line.
+- Font size and focus mode for reading.
+- An earlier recording keeps refining after a new one starts.
+- Removed: paste-into-any-app dictation.
+
+### Version 1.2.1
 
 - Editing the document in another editor during a session no longer stops refinement: only the blocks you edited are skipped
 - A file a sync client briefly locks is no longer mistaken for an outside edit

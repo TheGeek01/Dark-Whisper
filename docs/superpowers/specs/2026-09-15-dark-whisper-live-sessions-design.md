@@ -4,6 +4,8 @@
 **Status:** Draft for review
 **Stage:** 1 of 2. This spec covers the rebrand, the live transcription engine, and the Markdown document model. The three-pane workspace redesign is stage 2 and gets its own spec.
 
+> **Update (stage 3, 2026-09-16):** blocks are now variable-length paragraphs that close at pauses in speech, each with a clock line; see `2026-09-16-dark-whisper-quick-notes-refresh-design.md` §3.
+
 ## 1. Goal
 
 Today a recording is transcribed only after it ends, and the text is pasted into another application. This stage makes Dark-Whisper a dictation *workspace*: you start a session, watch the Markdown file being written as you speak, and the file is saved continuously in a vault folder you own. Quality improves during the session as completed blocks are quietly re-transcribed with a larger model.

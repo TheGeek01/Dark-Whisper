@@ -7,18 +7,18 @@ The code is split so that all decision logic lives in modules that never import 
 ### Main Process (main.ts)
 - Imports `appIdentity` first: it sets the app name and moves legacy user data before anything resolves `userData`
 - Handles Electron window lifecycle and the tray icon
-- Registers the global hotkey
+- Registers the global Quick Note hotkey, and draws the window with its own title bar (`titleBarOverlay`, colours from `windowTheme.ts`)
 - Owns all IPC handlers
 - Starts the transcription server at launch and stops it on quit
-- Decides whether a recording may start (via `serverGate`)
-- Routes the hotkey: pause/resume during a session, quick dictation otherwise; refuses one mode while the other is active
+- Routes the hotkey, the tray item and the header button to `toggleQuickNote`; a refusal (a session is recording) is shown in the window, or as a notification when it is hidden
 
 ### Renderer (src/renderer → public/js)
 - Vanilla TypeScript compiled by `tsconfig.renderer.json` to ES modules (`npm run build:renderer`); `public/index.html` is markup only and loads `js/renderer/app.js`
 - `marked` and `DOMPurify` are copied to `public/vendor/` and loaded as classic scripts (globals declared in `src/renderer/globals.d.ts`)
 - One state object (`state.ts`) with `update(patch)` / `subscribe(listener)`; each pane re-renders from it
-- DOM-free, Jest-tested: `format.ts`, `libraryTree.ts`, `documentView.ts`, `sessionModel.ts`, `state.ts` (they must not touch `window`/`document` and may use only ES2020 library features, since the main tsconfig compiles them through the tests)
-- DOM: `header.ts`, `library.ts`, `document.ts`, `sessionPanel.ts`, `dialogs.ts` (ask/confirm, Settings, Models), `toast.ts`, `dom.ts`
+- DOM-free, Jest-tested: `format.ts`, `libraryTree.ts`, `documentView.ts`, `sessionModel.ts`, `headerModel.ts`, `state.ts` (they must not touch `window`/`document` and may use only ES2020 library features, since the main tsconfig compiles them through the tests)
+- DOM: `header.ts`, `library.ts`, `document.ts`, `levelMeter.ts`, `sessionPanel.ts`, `theme.ts`, `dialogs.ts` (ask/confirm, Settings, Models), `toast.ts`, `dom.ts`
+- Colours are CSS tokens on `:root`, with a `[data-theme='light']` set; icons are CSS masks with `data:` SVGs (`.i .i-<name>`)
 - Imports use `.js` extensions and `import type`; renderer code may import only `src/renderer` and `src/shared`
 - The only `innerHTML` is in `document.ts`, fed by `DOMPurify.sanitize`; everything else uses `textContent`
 - CSP `default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; font-src 'none'; media-src 'none'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'` — no inline scripts or `style` attributes in the markup; images (including note images) may only be `data:` URIs, so remote and UNC (`//host/share`) image references are blocked
@@ -35,14 +35,19 @@ Electron-free (unit-tested):
 | `serverOutput.ts` | Classifies server log lines; restart backoff; line ring buffer; tasklist parsing |
 | `serverPaths.ts` | Resolves `whisper-server.exe` for a backend (env override, packaged, dev) |
 | `serverGate.ts` | Whether recording may start, and the status line text |
-| `settingsMigration.ts` | Server-mode default: existing installs stay external, fresh installs built-in |
+| `settingsMigration.ts` | Server-mode default (existing installs stay external, fresh installs built-in); silence-gap and theme clamping |
 | `userDataMigration.ts` | Which entries to move from `whisper-desktop` / `Whisper Desktop` into `Dark-Whisper` |
 | `streamOutput.ts` | Parses whisper-stream stdout/stderr: segments, device list, ready marker, failures |
 | `streamEngine.ts` | Live engine supervisor: `idle`, `starting`, `listening`, `paused`, `stopped`, `error` |
 | `sessionPaths.ts` | Session ids and session audio file names |
 | `documentStore.ts` | Vault Markdown: frontmatter, append, block replace with hash guard, list, search, rename |
-| `blockMath.ts` | Block time ranges, audio manifest → byte ranges, WAV headers |
-| `sessionService.ts` | One session: segments → document, block boundaries, refinement jobs, gap markers |
+| `blockMath.ts` | Audio manifest → byte ranges, WAV headers |
+| `audioLevel.ts` | PCM level in dBFS, meter level, and `SilenceTracker` (where a paragraph ends) |
+| `pcmFileSink.ts` | Writes SoX's raw PCM to a WAV, reporting each chunk; patches the header on close |
+| `quickNotes.ts` | The daily quick-note file (`prepareQuickNote`), start refusals, start-request parsing |
+| `guardRegistry.ts` | One `GuardedStore` per document, shared by every recording that writes to it |
+| `windowTheme.ts` | Title bar overlay and background colours per theme |
+| `sessionService.ts` | One recording: segments → paragraphs (blocks) with clock lines, refinement jobs |
 | `guardedStore.ts` | Wraps `DocumentStore` for a session: before every read or write, detects outside edits and reports which blocks changed |
 | `blockRefiner.ts` | Refinement queue (one at a time, one retry) and the 2 GB memory guard |
 | `micMuteOutput.ts` | The inline PowerShell/C# Core Audio shim and its `muted:true|false` output |
@@ -55,14 +60,12 @@ Electron-bound (verified by build, lint and running the app):
 | Module | Responsibility |
 |--------|----------------|
 | `whisperRuntime.ts` | Real dependencies: spawn, free port, `/health` polling, PID file, log file, stale-process cleanup; owns the `whisperServer` and `modelManager` singletons |
-| `streamRuntime.ts` | Spawns whisper-stream, session directories, the SoX session-audio recorder and its manifest |
-| `sessionRuntime.ts` | Wires engine, document, refinement queue and mic mute into sessions; reacts to outside edits |
+| `streamRuntime.ts` | Spawns whisper-stream, session directories, the SoX recorder (raw PCM → `PcmFileSink`), per-recording audio and levels |
+| `sessionRuntime.ts` | Wires engine, document, refinement queue and mic mute into sessions and quick notes; reacts to outside edits |
 | `appIdentity.ts` | App name and the user-data migration, at import time |
 | `settingsService.ts` | electron-store persistence |
 | `apiService.ts` | Transcription HTTP client (timeout differs per mode) |
-| `recordingService.ts` | SoX recording, device enumeration |
-| `audioControlService.ts` | Mute and restore system audio |
-| `pasteService.ts` | Clipboard write, verify, Ctrl+V via libnut, clipboard restore |
+| `soxPath.ts` | Location of the bundled `sox.exe` |
 | `hotkeyService.ts` | `globalShortcut` registration |
 | `libraryRuntime.ts` | Library IPC, `fs.watch` with a 5 s polling fallback, Recycle Bin, open/reveal, vault picker |
 
@@ -74,36 +77,19 @@ At startup, `main.ts` creates the default vault (`Documents\Dark-Whisper`, `sett
 - Type-only imports, so the sandboxed preload requires nothing but `electron`
   (verify with `grep -n "require(" dist/preload.js` — only `require("electron")` should appear)
 
-## Recording Flow
+## Quick Notes
 
 ```
-Ctrl+Q pressed
+Ctrl+Q / tray / Quick Notes button
     ↓
-hotkeyService triggers callback
+main.ts: handleQuickNoteToggle() → sessionRuntime.toggleQuickNote()
+    ├─ a quick note is recording → stopSession()
+    └─ otherwise → startSession({ kind: 'quick-note' })
+         ├─ startRefusal: refused while a session records
+         └─ prepareQuickNote → <vault>/Quick Notes/YYYY-MM-DD.md (created if missing),
+              firstBlockIndex = highest dw:block + 1, baseDurationSec from frontmatter
     ↓
-main.ts: handleRecordingToggle() → canStartRecording()
-    ├─ external mode → always allowed (health-checked separately)
-    └─ built-in mode → serverGate.recordingGate(mode, status)
-         ├─ no-model  → open Models, notify
-         ├─ starting  → notify "Model is still loading"
-         └─ ready     → proceed
-    ↓
-recordingService.recordAudio(device)
-    ├─ spawns bundled sox.exe (16 kHz mono WAV)
-    ├─ stops on the next hotkey press, or after 5 minutes
-    └─ returns the audio file path
-    ↓
-apiService.transcribeAudio(audioPath)
-    ├─ POST multipart to /v1/audio/transcriptions
-    ├─ built-in: http://127.0.0.1:<port>, 5 minute timeout
-    └─ external: configured URL, 30 second timeout
-    ↓
-pasteService.pasteTranscriptClipboard(text)
-    ├─ writes clipboard (await — Electron 44 clipboard is async)
-    ├─ libnut.keyTap('v', 'control')
-    └─ restores the previous clipboard
-    ↓
-IPC: 'transcription-complete' → renderer updates the UI
+The rest is a normal recording (below). The date is fixed at start.
 ```
 
 ## Live Sessions
@@ -113,15 +99,20 @@ session-start (IPC)
     ↓
 sessionRuntime.startSession()
     ├─ DocumentStore.createDocument → <vault>/YYYY-MM-DD-HHmm-untitled.md (-2, -3… on collision)
-    ├─ SessionService.begin → opens block 1
+    ├─ GuardRegistry.acquire → the document's shared GuardedStore
+    ├─ SessionService.begin → nothing is written until the first words
     └─ streamRuntime.startLiveEngine
-         ├─ SoX records userData/sessions/<id>/session-1.wav (16 kHz, 16-bit mono)
+         ├─ SoX streams raw PCM; PcmFileSink writes userData/sessions/<id>/audio-1.wav and
+         │    every chunk's level feeds the recording's SilenceTracker and the level meter
          └─ streamEngine spawns whisper-stream.exe in that directory
     ↓
 streamEngine 'segment' { text, atMs }
     ↓
-SessionService.segment → closes blocks whose end has passed (audio clock),
-  appends the text; a closed non-empty block → RefineJob { index, range, hash }
+SessionService.segment → if the open paragraph reached blockMinutes, or the audio between
+  its last segment and this one holds silenceGapSeconds of non-speech, close it there;
+  open a paragraph (marker + clock line) if none is open, append the text.
+  A closed non-empty paragraph → RefineJob { index, range, hash }. Pause, an engine
+  relaunch and Stop also close the open paragraph.
     ↓
 RefineQueue → slice the block's bytes out of the WAV(s) → POST to whisper-server
   → SessionService.applyRefinement → DocumentStore.replaceBlock (hash guard)
@@ -136,15 +127,17 @@ session-stop → engine and SoX stopped, final block queued, duration written;
 
 - Invocation: `whisper-stream.exe -m <live model> --step 0 --length 10000 -vth 0.6 -t <threads> -l <language> [-c <capture id>] [-ng] -f live.txt`, working directory `userData/sessions/<id>/`.
 - Every diagnostic, including the device list (`   - Capture device #N: 'name'`), goes to **stderr**; only `[Start speaking]` and transcript text go to **stdout**. The parser is stream-aware and uses no "looks like a log line" heuristic, which once swallowed real speech.
-- Ready marker: `[Start speaking]`, within 60 s. Crashes restart after 1 s, 5 s, 15 s, then `error`. Each relaunch writes a gap marker into the document.
-- `--save-audio` is **not** used: in VAD mode it rewrites its 2-second buffer ~10 times a second, so its WAV is not a real-time recording. SoX records the session instead, and keeps running across engine restarts so the audio timeline stays continuous.
+- Ready marker: `[Start speaking]`, within 60 s. Crashes restart after 1 s, 5 s, 15 s, then `error`. Each relaunch ends the open paragraph.
+- Segment timestamps are **not** used for timing: in VAD mode they are relative to a 10 s window and often span all of it. Silence comes from the audio level instead.
+- `--save-audio` is **not** used: in VAD mode it rewrites its 2-second buffer ~10 times a second, so its WAV is not a real-time recording. SoX records instead (raw PCM to stdout, `-t raw -`; its own `-S` level display is buffered until exit when piped), and keeps running across engine restarts so the audio timeline stays continuous.
 
 ### Documents and refinement
 
-- Blocks are delimited by `<!-- dw:block <n> t=<startSec>-<endSec> -->`. A block is replaced only when its text still hashes (SHA256 of the trimmed text) to what we recorded when it closed.
+- Paragraphs (blocks) are delimited by `<!-- dw:block <n> t=<startSec>-<endSec> -->` (written `t=start-start` when the paragraph opens, rewritten when it closes), followed by a clock line `**HH:MM**` (`**YYYY-MM-DD HH:MM**` for a recording's first paragraph). The clock line is not part of the text that is hashed or refined, and `replaceBlock` keeps it. A paragraph is replaced only when its text still hashes (SHA256 of the trimmed text) to what we recorded when it closed.
+- Silence rule (`SilenceTracker`): a ~0.25 s chunk is speech when `db >= -50` and `db >= min(p10 of the last 30 s, -40) + 10`. The longest non-speech run overlapping the two segment arrival times must last `silenceGapSeconds`; the paragraph ends at `max(previous arrival, middle of the run)`. With no level data it falls back to the arrival gap.
 - `GuardedStore` compares the file with the exact text we last wrote before **every** read or write. A difference means another program edited the file: the outside text becomes the new baseline, and `changedBlocks` reports which blocks changed. Finished blocks are then protected by their own hash when refined (`skipped-edited`); the block still being recorded is marked through `SessionService.noteOutsideEdit` and is closed as `edited` (shown as skipped) instead of being queued. Every other block is still refined. A file that cannot be read at that moment (a sync client holding it) is not treated as an edit.
 - Stopping a session waits for SoX to exit before deleting the session audio (Windows refuses to delete a file that is still open), and retries the delete a few times.
-- Each session owns its document, store and queue, so a stopped session that is still refining can never write into the next one.
+- Each recording owns its queue and its audio entries, so a stopped recording keeps refining after the next one starts. Recordings writing to the same document (two quick notes on one day) share its `GuardedStore` through `GuardRegistry`, so neither mistakes the other's writes for an outside edit; the second one numbers its paragraphs after the first's.
 - Refinement runs only when allowed: built-in server `ready` (or external mode with `refineWithExternalApi`), and during recording only if `refineDuringRecording` permits (`auto` defers when the live and refine model files exceed 2 GB). Permission is re-checked whenever the server status changes.
 - Refinement jobs slice `44 + floor(offset × 32000)` … bytes per overlapping WAV, skipping gaps; less than one second of audio is skipped.
 
@@ -178,7 +171,7 @@ Server binaries (and `whisper-stream.exe`, the same way) are resolved in this or
 
 | Channel | Direction | Purpose |
 |---------|-----------|---------|
-| `get-status`, `start-recording`, `stop-recording`, `copy-to-clipboard`, `get-settings`, `save-settings`, `get-audio-devices` | invoke | Pre-existing app controls |
+| `get-settings`, `save-settings` | invoke | Settings (a theme change also recolours the title bar; a shortcut change re-registers it) |
 | `get-server-status` | invoke | Current status view (`state`, `mode`, `text`, …) |
 | `restart-server` | invoke | Re-run the start sequence |
 | `open-server-log` | invoke | Open `whisper-server.log` |
@@ -187,17 +180,19 @@ Server binaries (and `whisper-stream.exe`, the same way) are resolved in this or
 | `server-status` | main → renderer | Status changed |
 | `download-progress` | main → renderer | Bytes, speed, state, error |
 | `open-models` | main → renderer | Open the Models modal (tray, notification, hotkey) |
-| `session-start`, `session-pause`, `session-resume`, `session-stop`, `session-status` | invoke | Session control; `session-start` returns the status view |
+| `session-start`, `session-pause`, `session-resume`, `session-stop`, `session-status` | invoke | Recording control; `session-start` takes `{ kind: 'session', folder }` or `{ kind: 'quick-note' }` and returns the status view |
+| `quick-note-toggle` | invoke | Start or stop a quick note |
 | `list-capture-devices` | invoke | Last device list seen from whisper-stream |
 | `open-vault`, `reveal-document` | invoke | Open the vault folder / show the current document |
 | `session-status` | main → renderer | `{ state, documentPath, blockIndex, durationSec, refining, message, muted }` |
 | `session-segment` | main → renderer | `{ text, blockIndex }` for each live segment |
-| `transcription-complete`, `recording-started`, `recording-stopped`, `error` | main → renderer | Pre-existing events |
+| `error` | main → renderer | `{ message }` for failures outside a renderer call (the Quick Note shortcut) |
+| `session-level` | main → renderer | Microphone level 0–1, at most every 100 ms |
 | `library-tree`, `library-search`, `document-read`, `document-rename`, `document-move`, `document-delete`, `folder-create`, `document-open-external`, `document-reveal`, `choose-vault`, `copy-text` | invoke | Library and clipboard |
 | `library-changed` | main → renderer | `{ paths }`, debounced 300 ms |
 | `session-block` | main → renderer | One block's state |
 
-`session-start` now takes an optional folder, and `session-status` carries `sessionId`, `documentFile`, `folder`, `microphone`, `liveModel`, `refineModel`, `messages` and `blocks`.
+`session-status` carries `sessionId`, `kind`, `documentFile`, `folder`, `microphone`, `liveModel`, `refineModel`, `messages` and `blocks`; each block event carries its `clock` line.
 
 ## Testing
 
@@ -207,20 +202,20 @@ npx jest src/__tests__/whisperServer.test.ts    # one suite
 npm run test:coverage
 ```
 
-332 tests across 28 suites. Conventions:
+Conventions:
 
 - Use real filesystem work in a temp directory (`fs.mkdtempSync(os.tmpdir())`) rather than mocking `fs`.
 - Inject fakes for processes, HTTP and clocks; never spawn a real process or hit the network, so the suite also passes on the Ubuntu CI runners.
 - Use `jest.useFakeTimers()` with `await jest.advanceTimersByTimeAsync(ms)` for the supervisor's timing behaviour.
 - Use `path.join` in expectations so assertions hold on both Windows and Linux.
-- `npm run smoke:workspace` drives a real app instance over the DevTools protocol against a throwaway vault (and a throwaway `--user-data-dir` profile, so it never touches your settings).
+- `npm run smoke:workspace` drives a real app instance over the DevTools protocol against a throwaway vault (and a throwaway `--user-data-dir` profile, so it never touches your settings). Chromium renders nothing in a hidden window with a title bar overlay (dialogs never report closing), so the script also starts the main process with `--inspect` and calls `showInactive()` on the window, parked with only a corner on screen.
 - `node scripts/dev-cdp.mjs "<expression>"` evaluates one expression in an app started with `--remote-debugging-port=9333`.
 
 ### Manual Test Checklist
 
 Automated tests cannot click the tray or press hotkeys, so before a release:
 
-- [ ] Fresh profile: setup banner → download recommended model → status `Ready` → dictate into another app
+- [ ] Fresh profile: setup banner → download recommended model → status `Ready` → Ctrl+Q from another app writes a quick note
 - [ ] Force CPU on → still transcribes, status shows `(CPU)`
 - [ ] Switch models; delete the active model (status returns to `No model installed`)
 - [ ] Cancel a download mid-way → no `.part` file left in the models directory
@@ -233,11 +228,14 @@ Automated tests cannot click the tray or press hotkeys, so before a release:
 - [ ] On a Vulkan-capable GPU, the status line shows `(GPU)`
 - [ ] Upgrade from a `whisper-desktop` profile → settings and models appear under `%APPDATA%\Dark-Whisper`
 - [ ] Session: text appears within ~2 s and the `.md` grows on disk
-- [ ] Session: a block closes, "refining" appears, and the block text is replaced in the file
-- [ ] Session: edit a block in another editor during the session → that block is not replaced, refinement pauses
+- [ ] A pause of 6 s starts a new paragraph with the time; Pause/Resume does too; the level meter moves while speaking
+- [ ] Two quick notes in a row go into one day file, numbered on, and the first one's paragraphs still refine
+- [ ] Session: a paragraph closes, "refining" appears, and its text is replaced in the file with its time line kept
+- [ ] Edit a paragraph in another editor while recording → only that paragraph is skipped
 - [ ] Session: mute the microphone (Windows or hardware key) → paused; unmute → recording
-- [ ] Session: hotkey pauses and resumes; quick dictation is refused during a session and vice versa
-- [ ] Session: kill `whisper-stream.exe` → a gap marker appears and recording continues
+- [ ] A quick note is refused during a session and vice versa (the shortcut shows a notification when the window is hidden)
+- [ ] Kill `whisper-stream.exe` → a new paragraph starts and recording continues
+- [ ] Title bar: caption buttons follow the theme; Snap Layouts and double-click-to-maximize work
 - [ ] Session: a session longer than 30 minutes; a vault on another drive or a synced folder
 - [ ] Session: stop → session audio removed after refinement (kept with Keep session audio)
 - [ ] Obsidian open on the vault while recording and while browsing
@@ -290,7 +288,7 @@ Put logic in an Electron-free module and inject its dependencies. If a test need
 `classifyServerLine` matches the server's own messages to detect model-load failures, port-bind failures and the GPU backend. Re-check them when bumping `whisper.version`.
 
 ### 3. Electron 44 clipboard is asynchronous
-`clipboard.readText()` / `writeText()` return promises. Forgetting to await makes paste silently fail.
+`clipboard.writeText()` returns a promise; await it (`copy-text`).
 
 ### 4. Vulkan builds are made in CI only
 No prebuilt Vulkan `whisper-server` is published upstream, so `.github/workflows/publish.yml` compiles it. Locally, `npm run whisper:fetch` gives you the CPU build; use `WHISPER_SERVER_DIR` for a GPU build.
