@@ -29,7 +29,7 @@ export function prepareQuickNote(
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     const name = path.join(QUICK_NOTES_FOLDER, `${localDateStamp(date)}.md`);
-    throw new Error(`Could not open today's quick note (${name}): ${reason}`);
+    throw new Error(`Could not open today's quick note (${name}): ${reason}`, { cause: error });
   }
   const duration = Number(parseFrontmatter(content.replace(/\r\n/g, '\n')).frontmatter.duration);
   return {
