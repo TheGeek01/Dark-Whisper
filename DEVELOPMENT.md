@@ -53,7 +53,7 @@ Electron-free (unit-tested):
 | `blockRefiner.ts` | Refinement queue (one at a time, one retry) and the 2 GB memory guard |
 | `micMuteOutput.ts` | The inline PowerShell/C# Core Audio shim and its `muted:true|false` output |
 | `micMuteService.ts` | Polls the mute state and reports changes |
-| `libraryService.ts` | Vault tree, search, read, rename, move, folders; the path guard every renderer path goes through |
+| `libraryService.ts` | Vault tree, search, read, rename, move, folders; the path guard every renderer path goes through. Tree and search use async I/O, at most 16 files open at once, so a large or synced vault does not stall the main process |
 | `libraryWatch.ts` | `ChangeBatcher` debounce and snapshot diffing |
 
 Electron-bound (verified by build, lint and running the app):

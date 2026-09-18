@@ -16,7 +16,7 @@ function vault() {
 const doc = (title: string, created: string) => `---\ntitle: ${title}\ncreated: ${created}\n---\n\nbody\n`;
 
 describe('LibraryService.tree', () => {
-  it('lists folders and markdown documents relative to the vault', () => {
+  it('lists folders and markdown documents relative to the vault', async () => {
     const v = vault();
     v.write('2026-09-16-0706-untitled.md', doc('untitled', '2026-09-16T07:06:00Z'));
     v.write('Clients/Acme/kickoff.md', doc('Kickoff', '2026-09-10T09:00:00Z'));
@@ -24,7 +24,7 @@ describe('LibraryService.tree', () => {
     v.write('.obsidian/workspace.md', 'hidden');
     fs.mkdirSync(path.join(v.root, 'Empty'));
 
-    const tree = v.service.tree();
+    const tree = await v.service.tree();
     expect(tree.exists).toBe(true);
     expect(tree.root).toBe(v.root);
     expect(tree.folders).toEqual([
@@ -38,18 +38,44 @@ describe('LibraryService.tree', () => {
     expect(tree.documents.every((d) => d.mtimeMs > 0)).toBe(true);
   });
 
-  it('falls back to the file name and reads Windows line endings', () => {
+  it('falls back to the file name and reads Windows line endings', async () => {
     const v = vault();
     v.write('plain.md', 'just text');
     v.write('crlf.md', '---\r\ntitle: Windows\r\ncreated: 2026-01-01T00:00:00Z\r\n---\r\n\r\nbody');
-    const byFile = new Map(v.service.tree().documents.map((d) => [d.file, d]));
+    const byFile = new Map((await v.service.tree()).documents.map((d) => [d.file, d]));
     expect(byFile.get('plain.md')).toMatchObject({ title: 'plain', created: '' });
     expect(byFile.get('crlf.md')).toMatchObject({ title: 'Windows', created: '2026-01-01T00:00:00Z' });
   });
 
-  it('reports a missing vault', () => {
+  it('reports a missing vault', async () => {
     const missing = path.join(os.tmpdir(), `dw-missing-${Date.now()}`);
-    expect(new LibraryService(missing).tree()).toEqual({ root: missing, exists: false, folders: [], documents: [] });
+    expect(await new LibraryService(missing).tree()).toEqual({ root: missing, exists: false, folders: [], documents: [] });
+  });
+
+  // The scan runs in Electron's main process, so a large or slow (synced, network) vault must not
+  // stop the tray, shortcuts and recording while it is read.
+  it('lets other work run while the vault is scanned', async () => {
+    const v = vault();
+    for (let i = 0; i < 40; i++) v.write(`Notes/n${i}.md`, doc(`n${i}`, 'x'));
+    let ticks = 0;
+    let scanning = true;
+    const tick = () => {
+      ticks++;
+      if (scanning) setImmediate(tick);
+    };
+    setImmediate(tick);
+    const pending = v.service.tree();
+    const scan = await pending;
+    scanning = false;
+    expect(scan.documents).toHaveLength(40);
+    expect(ticks).toBeGreaterThan(0);
+    const hits = v.service.search('title');
+    ticks = 0;
+    scanning = true;
+    setImmediate(tick);
+    expect(await hits).toHaveLength(40);
+    scanning = false;
+    expect(ticks).toBeGreaterThan(0);
   });
 });
 
@@ -143,12 +169,12 @@ describe('LibraryService changes', () => {
 });
 
 describe('LibraryService.search and read', () => {
-  it('finds lines across documents, skipping markers and hidden folders', () => {
+  it('finds lines across documents, skipping markers and hidden folders', async () => {
     const v = vault();
     v.write('a.md', '---\ntitle: a\n---\n\n<!-- dw:block 1 t=0-120 budget -->\nThe quarterly budget\n');
     v.write('Work/b.md', 'Budget review\r\nnothing\r\n');
     v.write('.trash/c.md', 'budget');
-    const hits = v.service.search('BUDGET');
+    const hits = await v.service.search('BUDGET');
     expect(hits).toHaveLength(2);
     expect(hits).toEqual(
       expect.arrayContaining([
@@ -158,11 +184,11 @@ describe('LibraryService.search and read', () => {
     );
   });
 
-  it('returns nothing for a blank query and caps the results', () => {
+  it('returns nothing for a blank query and caps the results', async () => {
     const v = vault();
     v.write('many.md', Array.from({ length: 300 }, () => 'x').join('\n'));
-    expect(v.service.search('   ')).toEqual([]);
-    expect(v.service.search('x')).toHaveLength(200);
+    expect(await v.service.search('   ')).toEqual([]);
+    expect(await v.service.search('x')).toHaveLength(200);
   });
 
   it('reads a document with its modification time', () => {

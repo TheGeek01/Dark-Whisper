@@ -48,13 +48,28 @@ function startPolling(vault: string, reason: unknown): void {
   console.warn(`Vault watcher unavailable for ${vault}; polling instead: ${detail}`);
   addSessionNotice(POLLING_NOTICE);
   const service = new LibraryService(vault);
-  let previous: Snapshot = snapshotTree(service.tree());
-  poller = setInterval(() => {
-    const next = snapshotTree(service.tree());
-    const changed = diffSnapshots(previous, next);
-    previous = next;
-    if (changed.length > 0) notify(changed);
-  }, POLL_MS);
+  let previous: Snapshot | null = null;
+  let scanning = false;
+  // A slow vault can take longer than POLL_MS to scan: never run two scans at once, and drop a
+  // scan that finishes after polling stopped (the vault setting changed).
+  const poll = async (timer: ReturnType<typeof setInterval>) => {
+    if (scanning) return;
+    scanning = true;
+    try {
+      const next = snapshotTree(await service.tree());
+      if (poller !== timer) return;
+      const changed = previous ? diffSnapshots(previous, next) : [];
+      previous = next;
+      if (changed.length > 0) notify(changed);
+    } catch (error) {
+      console.error('Could not poll the vault:', error);
+    } finally {
+      scanning = false;
+    }
+  };
+  const timer = setInterval(() => void poll(timer), POLL_MS);
+  poller = timer;
+  void poll(timer);
 }
 
 // Starts watching the configured vault, or restarts when the vault setting changed.
