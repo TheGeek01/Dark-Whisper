@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Dark-Whisper app icon: the header's waveform (public/app.css .i-logo) on the app's navy. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#262a63"/>
+      <stop offset="1" stop-color="#0f1020"/>
+    </linearGradient>
+    <linearGradient id="bars" gradientUnits="userSpaceOnUse" x1="0" y1="58" x2="0" y2="198">
+      <stop offset="0" stop-color="#c9c1ff"/>
+      <stop offset="1" stop-color="#6d5dfc"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="54" fill="url(#bg)"/>
+  <rect x="9" y="9" width="238" height="238" rx="53" fill="none" stroke="#b3a9ff" stroke-opacity="0.22" stroke-width="2"/>
+  <path d="M58 114v28M86 93v70M114 65v126M142 93v70M170 79v98M198 114v28"
+        fill="none" stroke="url(#bars)" stroke-width="15" stroke-linecap="round"/>
+</svg>

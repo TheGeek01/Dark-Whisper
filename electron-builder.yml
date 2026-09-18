@@ -27,6 +27,7 @@ asarUnpack:
   - node_modules/node-mic/**/*
 
 win:
+  icon: assets/dark-whisper.ico
   target:
     - target: nsis
       arch:
@@ -37,9 +38,9 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  installerIcon: assets/whisper.ico
-  uninstallerIcon: assets/whisper.ico
-  installerHeaderIcon: assets/whisper.ico
+  installerIcon: assets/dark-whisper.ico
+  uninstallerIcon: assets/dark-whisper.ico
+  installerHeaderIcon: assets/dark-whisper.ico
   runAfterFinish: true
   artifactName: Dark-Whisper-Setup-${version}.${ext}
 

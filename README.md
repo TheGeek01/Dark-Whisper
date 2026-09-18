@@ -531,7 +531,8 @@ Dark-Whisper/
 ├── public/
 │   └── index.html, app.css        # Workspace markup, dark and light themes
 ├── assets/
-│   └── whisper.ico                # Application icon
+│   ├── icon.svg, icon-16.svg, icon-24.svg   # Icon sources (npm run icon:build)
+│   └── dark-whisper.ico           # Application icon (generated from the SVGs)
 ├── scripts/
 │   ├── fetch-whisper.js           # Dev: download pinned whisper.cpp CPU binaries
 │   ├── stream-probe.js            # Dev: run the live engine alone

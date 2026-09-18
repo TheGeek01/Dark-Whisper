@@ -16,6 +16,7 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "whisper:fetch": "node scripts/fetch-whisper.js",
+    "icon:build": "electron scripts/make-icon.mjs",
     "stream:probe": "node scripts/stream-probe.js",
     "smoke:workspace": "node scripts/workspace-smoke.mjs",
     "clean-build": "node -e \"const fs = require('fs'); const path = require('path'); ['dist/Whisper Desktop.exe', 'dist/Whisper Desktop.exe.blockmap', 'dist/__msi-x64', 'dist/win-unpacked'].forEach(p => { try { const fullPath = path.join(__dirname, p); if (fs.existsSync(fullPath)) fs.rmSync(fullPath, {recursive: true}); } catch(e) {} });\"",

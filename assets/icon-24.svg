@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <!-- Dark-Whisper icon for 24 px (the Windows 11 taskbar at 100%): icon-16.svg's bars on a 24 px grid. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#262a63"/>
+      <stop offset="1" stop-color="#0f1020"/>
+    </linearGradient>
+    <linearGradient id="bars" gradientUnits="userSpaceOnUse" x1="0" y1="5" x2="0" y2="19">
+      <stop offset="0" stop-color="#d2cbff"/>
+      <stop offset="1" stop-color="#7d6fff"/>
+    </linearGradient>
+  </defs>
+  <rect width="24" height="24" rx="5" fill="url(#bg)"/>
+  <g fill="url(#bars)">
+    <rect x="3" y="8" width="3" height="8" rx="1.5"/>
+    <rect x="8" y="5" width="3" height="14" rx="1.5"/>
+    <rect x="13" y="6" width="3" height="12" rx="1.5"/>
+    <rect x="18" y="9" width="3" height="6" rx="1.5"/>
+  </g>
+</svg>

@@ -32,6 +32,8 @@ import { onLibraryChanged, registerLibraryIpc, stopWatching, watchVault } from '
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let currentShortcut = 'Ctrl+Q';
+// The window, taskbar and tray icon; the packaged exe gets the same file from electron-builder.
+const APP_ICON = path.join(app.getAppPath(), 'assets', 'dark-whisper.ico');
 
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
@@ -57,6 +59,7 @@ const openExternalLink = (url: string) => {
 const createWindow = () => {
   const theme = getSettings().theme;
   mainWindow = new BrowserWindow({
+    icon: APP_ICON,
     width: 1280,
     height: 800,
     minWidth: 960,
@@ -228,12 +231,10 @@ const buildTrayMenu = () =>
 
 const createTray = () => {
   try {
-    // Load custom icon - use app.getAppPath() for correct path in packaged app
-    const iconPath = path.join(app.getAppPath(), 'assets/whisper.ico');
-    if (!fs.existsSync(iconPath)) {
-      throw new Error(`Icon file not found at ${iconPath}`);
+    if (!fs.existsSync(APP_ICON)) {
+      throw new Error(`Icon file not found at ${APP_ICON}`);
     }
-    tray = new Tray(iconPath);
+    tray = new Tray(APP_ICON);
   } catch (error) {
     console.error('Error creating tray:', error);
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef

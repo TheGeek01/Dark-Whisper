@@ -45,7 +45,7 @@ Version 1.1.0
 │       ├── libraryWatch.ts        - Change batching, polling diff
 │       └── libraryRuntime.ts      - Library IPC and vault watcher
 ├── public/index.html, app.css     - Workspace markup and theme
-├── assets/whisper.ico             - Application icon
+├── assets/dark-whisper.ico        - Application icon (npm run icon:build)
 ├── scripts/fetch-whisper.js       - Dev: fetch pinned whisper.cpp CPU binaries
 ├── scripts/stream-probe.js        - Dev: run the live engine alone
 ├── resources/whisper/             - Server binaries (generated, gitignored)
