@@ -98,6 +98,14 @@ export interface SessionStatusView {
   refineModel: string;
   messages: string[]; // newest first
   blocks: BlockEvent[]; // latest event per block, by blockIndex
+  // Recordings that stopped before this one and are still refining.
+  earlier: EarlierRun[];
+}
+
+export interface EarlierRun {
+  sessionId: string;
+  documentFile: string; // relative to the vault it was started in
+  blocks: BlockEvent[];
 }
 
 export interface SegmentEvent {

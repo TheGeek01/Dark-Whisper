@@ -1,10 +1,12 @@
-import type { BlockEvent, BlockState, SegmentEvent, SessionStatusView } from '../shared/api.js';
+import type { BlockEvent, BlockState, EarlierRun, SegmentEvent, SessionStatusView } from '../shared/api.js';
 import { clockOf, clockParts } from './documentView.js';
 import { formatClock } from './format.js';
 
 export interface SessionModel {
   status: SessionStatusView | null;
   blocks: BlockEvent[];
+  // Earlier recordings still refining; their documents show their paragraph states too.
+  earlier: EarlierRun[];
   // Live text received since the document was last read, by block.
   pendingText: Map<number, string>;
 }
@@ -35,7 +37,7 @@ export const BLOCK_LABELS: Record<BlockState, string> = {
 const RUNNING_STATES: SessionStatusView['state'][] = ['starting', 'recording', 'paused', 'error'];
 
 export function emptySessionModel(): SessionModel {
-  return { status: null, blocks: [], pendingText: new Map() };
+  return { status: null, blocks: [], earlier: [], pendingText: new Map() };
 }
 
 export function isSessionRunning(status: SessionStatusView | null): boolean {
@@ -54,12 +56,33 @@ export function applyStatus(model: SessionModel, status: SessionStatusView): Ses
   const sameSession = model.status !== null && model.status.sessionId === status.sessionId;
   let blocks = sameSession ? model.blocks : [];
   for (const event of status.blocks) blocks = upsert(blocks, event);
-  return { status, blocks, pendingText: sameSession ? model.pendingText : new Map() };
+  const earlier = status.earlier.map((run) => {
+    let runBlocks = model.earlier.find((r) => r.sessionId === run.sessionId)?.blocks ?? [];
+    for (const event of run.blocks) runBlocks = upsert(runBlocks, event);
+    return { ...run, blocks: runBlocks };
+  });
+  return { status, blocks, earlier, pendingText: sameSession ? model.pendingText : new Map() };
 }
 
 export function applyBlock(model: SessionModel, event: BlockEvent): SessionModel {
-  if (!model.status || model.status.sessionId !== event.sessionId) return model;
-  return { ...model, blocks: upsert(model.blocks, event) };
+  if (model.status && model.status.sessionId === event.sessionId) {
+    return { ...model, blocks: upsert(model.blocks, event) };
+  }
+  if (!model.earlier.some((run) => run.sessionId === event.sessionId)) return model;
+  const earlier = model.earlier.map((run) =>
+    run.sessionId === event.sessionId ? { ...run, blocks: upsert(run.blocks, event) } : run,
+  );
+  return { ...model, earlier };
+}
+
+// Paragraph states for a document: from the current recording and any earlier one still refining
+// (two quick notes on one day write to the same file, numbered on).
+export function documentBlocks(model: SessionModel, file: string): BlockEvent[] {
+  const runs = [
+    ...(model.status?.documentFile === file ? [model.blocks] : []),
+    ...model.earlier.filter((run) => run.documentFile === file).map((run) => run.blocks),
+  ];
+  return runs.flat().sort((a, b) => a.blockIndex - b.blockIndex);
 }
 
 export function applySegment(model: SessionModel, segment: SegmentEvent): SessionModel {

@@ -6,6 +6,7 @@ import {
   BLOCK_LABELS,
   blockTime,
   clearPendingText,
+  documentBlocks,
   emptySessionModel,
   isSessionRunning,
   sessionDetailRows,
@@ -31,6 +32,7 @@ const status = (overrides: Partial<SessionStatusView> = {}): SessionStatusView =
   refineModel: 'turbo',
   messages: [],
   blocks: [],
+  earlier: [],
   ...overrides,
 });
 
@@ -129,6 +131,35 @@ describe('sessionModel', () => {
     model = applyBlock(model, block(1, 'removed'));
     model = applyBlock(model, block(1, 'refining'));
     expect(model.blocks).toEqual([block(1, 'removed')]);
+  });
+
+  it('keeps an earlier recording that is still refining, and its document shows its states', () => {
+    const earlier = { sessionId: 'old', documentFile: 'Notes/old.md', blocks: [block(1, 'queued', 'old')] };
+    let model = applyStatus(emptySessionModel(), status({ earlier: [earlier] }));
+    model = applyBlock(model, block(1, 'refining', 'old'));
+    model = applyBlock(model, block(2, 'queued', 'old'));
+    expect(documentBlocks(model, 'Notes/old.md')).toEqual([block(1, 'refining', 'old'), block(2, 'queued', 'old')]);
+    expect(documentBlocks(model, 'C:/v/a.md')).toEqual([]);
+
+    // A status snapshot taken before those events must not move the blocks back.
+    model = applyStatus(model, status({ earlier: [earlier] }));
+    expect(documentBlocks(model, 'Notes/old.md')[0].state).toBe('refining');
+
+    // Once it has finished refining, main stops listing it.
+    model = applyStatus(model, status());
+    expect(documentBlocks(model, 'Notes/old.md')).toEqual([]);
+  });
+
+  it('merges the current and an earlier recording writing to the same document', () => {
+    let model = applyStatus(
+      emptySessionModel(),
+      status({ documentFile: 'Quick Notes/day.md', earlier: [{ sessionId: 'old', documentFile: 'Quick Notes/day.md', blocks: [block(1, 'refining', 'old')] }] }),
+    );
+    model = applyBlock(model, block(2, 'live'));
+    expect(documentBlocks(model, 'Quick Notes/day.md').map((b) => [b.blockIndex, b.state])).toEqual([
+      [1, 'refining'],
+      [2, 'live'],
+    ]);
   });
 });
 

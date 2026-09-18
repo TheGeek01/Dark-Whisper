@@ -27,6 +27,7 @@ const session = (overrides: Partial<SessionStatusView> = {}): SessionStatusView 
   refineModel: 'turbo',
   messages: [],
   blocks: [],
+  earlier: [],
   ...overrides,
 });
 

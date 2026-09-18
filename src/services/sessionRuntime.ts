@@ -224,8 +224,15 @@ export function sessionStatus(): SessionStatusView {
     liveModel: ctx?.liveModel ?? '',
     refineModel: ctx?.refineModel ?? '',
     messages: [...(ctx?.messages ?? []), ...notices],
-    blocks: ctx ? [...ctx.blocks.values()].sort((a, b) => a.blockIndex - b.blockIndex) : [],
+    blocks: ctx ? sortedBlocks(ctx) : [],
+    earlier: [...finishing]
+      .filter((c) => c !== ctx)
+      .map((c) => ({ sessionId: c.id, documentFile: toRelative(c.vaultPath, c.documentPath), blocks: sortedBlocks(c) })),
   };
+}
+
+function sortedBlocks(ctx: SessionContext): BlockEvent[] {
+  return [...ctx.blocks.values()].sort((a, b) => a.blockIndex - b.blockIndex);
 }
 
 // Durations are derived from the files' current size, because the newest file is still growing.

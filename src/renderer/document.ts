@@ -14,7 +14,7 @@ import {
 import { byId, el } from './dom.js';
 import { initLevelMeter } from './levelMeter.js';
 import { recordingFile, renameDocument } from './library.js';
-import { BLOCK_LABELS, clearPendingText, isSessionRunning } from './sessionModel.js';
+import { BLOCK_LABELS, clearPendingText, documentBlocks, isSessionRunning } from './sessionModel.js';
 import { getState, subscribe, update, type AppState } from './state.js';
 import { reportError, toast } from './toast.js';
 
@@ -31,6 +31,8 @@ let readError: string | null = null;
 let refinedSignature = '';
 let wasRunning = false;
 let wasSessionDocument = false;
+// The open document's paragraph states as last rendered, to re-render only when they change.
+let shownBadges = '';
 let fontSize = DEFAULT_FONT_SIZE;
 
 function isLiveDocument(): boolean {
@@ -149,7 +151,7 @@ function renderDocument(): void {
 
   const parsed = parseDocument(document.content);
   const parts = currentParts();
-  const blocks = isSessionDocument() ? session.blocks : [];
+  const blocks = documentBlocks(session, selectedFile);
   const liveIndex = live && session.status ? session.status.blockIndex : null;
   const lastOfLive = liveIndex === null ? -1 : parts.map((p) => p.kind === 'block' && p.index === liveIndex).lastIndexOf(true);
 
@@ -245,6 +247,12 @@ function onStateChange(state: AppState, changed: ReadonlySet<keyof AppState>): v
     refinedSignature = signature;
     wasRunning = running;
     wasSessionDocument = isDoc;
+    // An earlier recording still refining this document changes its badges too.
+    const badges = state.selectedFile
+      ? documentBlocks(state.session, state.selectedFile).map((b) => `${b.blockIndex}:${b.state}`).join(',')
+      : '';
+    if (badges !== shownBadges) sessionRelevant = true;
+    shownBadges = badges;
   }
   if (
     changed.has('document') ||
