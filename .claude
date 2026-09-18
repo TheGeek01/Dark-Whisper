@@ -54,6 +54,7 @@ Electron-bound services: `whisperRuntime` (spawn, ports, `/health`, PID file, lo
 ## Server Lifecycle (whisperServer.ts)
 States: `no-model` | `starting` | `ready` | `error` | `stopped`.
 - Args: `-m <model file name> --host 127.0.0.1 --port <free port> --inference-path /v1/audio/transcriptions`, spawned with `cwd` = the model's directory. **The relative `-m` plus `cwd` is deliberate**: whisper-server reads argv as ANSI but decodes the path as UTF-8, so absolute paths break on non-ASCII profiles (e.g. `C:\Users\José`).
+- Args add `--vad -vm <relative silero path>` when `refineVad` and the pinned model verifies; `vad-failed` (`failed to initialize VAD context`) relaunches without VAD. VAD loads per request in b5130.
 - Readiness: poll `/health` every 500 ms up to 120 s (the model loads before the port opens).
 - GPU label comes from the server log (`whisper_backend_init_gpu: using … backend` vs `no GPU found`), not from the chosen binary.
 - Vulkan process exiting before readiness (without a model-load error) → retry on CPU and remember per version. Model-load failure → error, no fallback.
@@ -77,7 +78,7 @@ States: `no-model` | `starting` | `ready` | `error` | `stopped`.
 - Download to `<file>.part`, verify SHA256 + GGML magic (`readUInt32LE(0) === 0x67676d6c`), then rename. One download at a time; progress throttled to 250 ms; stray `.part` files swept at startup.
 
 ## Settings (electron-store, config.json)
-`serverMode` (`builtin`/`external`), `modelId`, `forceCpu`, `gpuFallbackVersion`, `shortcut`, `apiUrl`, `apiToken`, `vaultPath`, `liveModelId`, `language`, `refineDuringRecording` (`auto`/`always`/`afterStop`), `refineWithExternalApi`, `blockMinutes`, `keepSessionAudio`, `silenceGapSeconds` (1–60, default 5), `theme` (`dark`/`light`), `captureDeviceName`.
+`serverMode` (`builtin`/`external`), `modelId`, `forceCpu`, `gpuFallbackVersion`, `shortcut`, `apiUrl`, `apiToken`, `vaultPath`, `liveModelId`, `language`, `refineDuringRecording` (`auto`/`always`/`afterStop`), `refineWithExternalApi`, `refineVad` (default true), `blockMinutes`, `keepSessionAudio`, `silenceGapSeconds` (1–60, default 5), `theme` (`dark`/`light`), `captureDeviceName`.
 Migration: if `serverMode` is absent and `config.json` already existed → `external` (upgrades keep working); fresh installs → `builtin`. `serverMode` is deliberately NOT in electron-store defaults, or the migration check would never fire.
 
 ## Data Locations (`%APPDATA%\Dark-Whisper\`)

@@ -9,7 +9,7 @@ Transcription runs on a **built-in [whisper.cpp](https://github.com/ggml-org/whi
 - **Quick Notes** - `Ctrl+Q` (customizable) from any application starts a note in `Quick Notes/YYYY-MM-DD.md`; all of a day's notes go in one file, each starting with the date and time
 - **Sessions** - A Markdown document per meeting or idea, written live as you speak, in the folder you pick
 - **Timestamped Paragraphs** - A pause in speech (5 seconds by default) starts a new paragraph with the time; Pause and Resume do the same
-- **Paragraph Refinement** - Each finished paragraph is re-transcribed with your main model and replaced in the file, unless you have edited it
+- **Paragraph Refinement** - Each finished paragraph is re-transcribed with your main model and replaced in the file, unless you have edited it; silent paragraphs are skipped with Silero VAD, so Whisper's invented "Thank you." never lands in your notes
 - **Workspace** - Vault library with pinned Quick Notes, folder counts, recent documents and full-text search that jumps to the matching line; the document with its times in the margin; a details panel with each paragraph's refinement state
 - **Light and Dark Themes** - Switch from the header; the window draws its own title bar
 - **Mic Mute as Pause** - Muting the microphone (in Windows or with a hardware key) pauses recording
@@ -220,6 +220,7 @@ Downloads are verified against Hugging Face's SHA256 and checked for the GGML fo
 3. Configure the following options:
    - **Transcription server** - **Built-in** (bundled whisper.cpp) or **External API**
    - **Force CPU** - Built-in only; use if GPU transcription fails or misbehaves
+   - **Skip silence when refining (VAD)** - Built-in only; removes paragraphs that contain no speech (default on)
    - **API Endpoint** - External only; URL where the Whisper API is running
    - **API Token** - External only; authentication token if your API requires one
    - **Quick note shortcut** - Change the hotkey (e.g., `Alt+R`, `F9`, etc.); applies straight away
@@ -235,7 +236,7 @@ Downloads are verified against Hugging Face's SHA256 and checked for the GGML fo
 
    The theme (dark or light) is switched with the moon/sun button in the header and remembered.
 
-4. Settings are saved when you click Save. Changing server mode or Force CPU restarts the server.
+4. Settings are saved when you click Save. Changing server mode, Force CPU or the VAD setting restarts the server.
 
 ### Status Line
 
@@ -247,7 +248,7 @@ The header shows what is recording, or else what the transcription server is doi
 | Amber - `Paused` / `Refining 2` | Paused, or paragraphs still being refined |
 | Grey - `No model installed` | Download a model to finish setup |
 | Amber - `Loading model…` | The server is starting or reloading |
-| Green - `Ready` | Ready; hover for the model and backend (GPU/CPU) |
+| Green - `Ready` | Ready; hover for the model, backend (GPU/CPU) and whether VAD is on |
 | Red - `Server error: …` | With **Restart** and **Open log** buttons |
 | Blue - `External API — <url>` | Using an external server |
 
@@ -322,6 +323,7 @@ App quits → server is stopped
 - **Request Timeout:** 5 minutes with the built-in server, 30 seconds with an external API
 - **Server Binding:** `127.0.0.1` only, on a port chosen at startup
 - **Model Location:** `%APPDATA%\Dark-Whisper\models\`
+- **VAD Model:** `ggml-silero-v6.2.0.bin` (Silero, 885 KB), bundled and copied to `%APPDATA%\Dark-Whisper\models\`
 - **Server Log:** `%APPDATA%\Dark-Whisper\logs\whisper-server.log` (last 500 lines, per run)
 - **Recording Audio:** `%APPDATA%\Dark-Whisper\sessions\<id>\` (32 kB/s while recording)
 - **Live Engine Log:** `%APPDATA%\Dark-Whisper\logs\stream.log`
@@ -347,6 +349,7 @@ C:\Users\[YourUsername]\AppData\Roaming\Dark-Whisper\
 | `language` | language code | Default `en` |
 | `refineDuringRecording` | `auto` / `always` / `afterStop` | Default `auto` |
 | `refineWithExternalApi` | `true` / `false` | Default `false` |
+| `refineVad` | `true` / `false` | Default `true` |
 | `blockMinutes` | 1-30 | Default `2` |
 | `silenceGapSeconds` | 1-60 | Seconds of silence that start a new paragraph; default `5` |
 | `theme` | `dark` / `light` | Default `dark` |
@@ -444,6 +447,7 @@ curl -X POST http://127.0.0.1:4444/v1/audio/transcriptions \
 - **"File changed outside the app — edited blocks won't be refined"** - another program changed the document while recording. Paragraphs you edited keep your text and are marked skipped; the rest are still refined. Reload the file in your editor before saving
 - **Paragraphs split too often, or not at all** - change **Start a new paragraph after this many seconds of silence** in Settings. A very noisy room can hide pauses; the length cap still ends a paragraph
 - **"Could not open today's quick note"** - something blocks `Quick Notes/YYYY-MM-DD.md` in the vault (for example a folder with that name, or a file another program has locked)
+- **A paragraph disappeared** - its audio held no speech (the details panel shows "removed — no speech"). If real speech is being removed, untick **Skip silence when refining (VAD)** and report it
 - **Paragraphs are never refined** - the built-in server must be `Ready`; in External API mode refinement is off unless enabled in Settings
 
 ### Microphone Permission Issues
@@ -496,6 +500,7 @@ Dark-Whisper/
 │   │   ├── settingsMigration.ts   # Setting defaults and clamping
 │   │   ├── modelCatalog.ts        # Curated model list, URL and GGML validation
 │   │   ├── modelManager.ts        # Model download, verify, list, delete
+│   │   ├── vadModel.ts            # The pinned Silero VAD model: verify and install
 │   │   ├── whisperServer.ts       # Server supervisor state machine
 │   │   ├── serverOutput.ts        # Server log parsing, restart backoff
 │   │   ├── serverPaths.ts         # Server binary resolution
@@ -536,6 +541,7 @@ Dark-Whisper/
 ├── docs/superpowers/              # Design spec and implementation plan
 ├── dist/                          # Compiled JavaScript (generated)
 ├── whisper.version                # Pinned whisper.cpp build tag
+├── whisper-vad.json               # Pinned Silero VAD model
 ├── electron-builder.yml           # Packaging and publishing config
 ├── package.json                   # Dependencies and scripts
 ├── tsconfig.json                  # TypeScript configuration
@@ -561,7 +567,7 @@ The `services` layer is deliberately split: the `*Runtime.ts` modules (and the s
 `.github/workflows/publish.yml` runs on a `v*.*.*` tag:
 
 1. **Lint** and **Test** on Ubuntu.
-2. **Build whisper.cpp server** on Windows: installs the pinned Vulkan SDK and SDL2, compiles `whisper-server` and `whisper-stream` twice (CPU and Vulkan) from the tag in `whisper.version`, transcribes a sample clip as a smoke test, and uploads the binaries as an artifact. Results are cached per whisper.cpp, SDK and SDL2 version.
+2. **Build whisper.cpp server** on Windows: installs the pinned Vulkan SDK and SDL2, compiles `whisper-server` and `whisper-stream` twice (CPU and Vulkan) from the tag in `whisper.version`, transcribes a sample clip as a smoke test, fetches and checks the pinned Silero VAD model, checks that the VAD server returns nothing for silence, and uploads the binaries as an artifact. Results are cached per whisper.cpp, SDK and SDL2 version.
 3. **Build and Release**: downloads that artifact into `resources/whisper/`, builds the NSIS installer, and publishes a GitHub Release.
 
 To cut a release: `git tag v1.2.0 && git push origin v1.2.0`.
@@ -688,6 +694,7 @@ When reporting a transcription problem, please include the status line text and,
 - Quick notes: Ctrl+Q (or Quick Notes in the header) records into one file per day in the Quick Notes folder, with a date and time at the start of each note.
 - Recordings are split into paragraphs after 5 seconds of silence (adjustable), each with its time in the margin. Each paragraph is refined on its own.
 - New look: a header with Record, Stop and Pause, a sidebar with pinned Quick Notes, folder counts and recent documents, a collapsible details panel, and a light theme.
+- Silent paragraphs are skipped: the built-in server uses Silero VAD, so "Thank you." and similar invented text no longer appear.
 - Search results now jump to the matching line.
 - Font size and focus mode for reading.
 - An earlier recording keeps refining after a new one starts.

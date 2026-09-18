@@ -31,6 +31,7 @@ Electron-free (unit-tested):
 |--------|----------------|
 | `modelCatalog.ts` | Curated model list with pinned SHA256 hashes; custom URL parsing; GGML header check |
 | `modelManager.ts` | Download to `.part`, hash and format verification, cancel, list, delete, disk usage |
+| `vadModel.ts` | Pinned Silero VAD model: hash check and install into the models folder |
 | `whisperServer.ts` | Supervisor state machine: `no-model`, `starting`, `ready`, `error`, `stopped` |
 | `serverOutput.ts` | Classifies server log lines; restart backoff; line ring buffer; tasklist parsing |
 | `serverPaths.ts` | Resolves `whisper-server.exe` for a backend (env override, packaged, dev) |
@@ -139,6 +140,7 @@ session-stop → engine and SoX stopped, final block queued, duration written;
 - Stopping a session waits for SoX to exit before deleting the session audio (Windows refuses to delete a file that is still open), and retries the delete a few times.
 - Each recording owns its queue and its audio entries, so a stopped recording keeps refining after the next one starts. Recordings writing to the same document (two quick notes on one day) share its `GuardedStore` through `GuardRegistry`, so neither mistakes the other's writes for an outside edit; the second one numbers its paragraphs after the first's.
 - Refinement runs only when allowed: built-in server `ready` (or external mode with `refineWithExternalApi`), and during recording only if `refineDuringRecording` permits (`auto` defers when the live and refine model files exceed 2 GB). Permission is re-checked whenever the server status changes.
+- With VAD on, an empty refinement removes its paragraph (`removeBlock`, hash-guarded, state `removed`); without VAD the live text is kept.
 - Refinement jobs slice `44 + floor(offset × 32000)` … bytes per overlapping WAV, skipping gaps; less than one second of audio is skipped.
 
 ### Microphone mute
@@ -151,6 +153,7 @@ Pause mutes the Windows default capture endpoint through an inline C# shim run b
 
 - **Start:** end a stale process from a previous crash → resolve the binary (Vulkan first unless Force CPU or a remembered fallback) → pick a free port → spawn with `-m <model file> --host 127.0.0.1 --port <port> --inference-path /v1/audio/transcriptions`, with `cwd` set to the model's directory.
 - **Relative model path:** whisper-server reads argv in the ANSI code page but decodes the path as UTF-8, so an absolute path breaks on non-ASCII profiles (e.g. `C:\Users\José`). Passing only the file name and setting `cwd` avoids that entirely. Do not "simplify" this back to an absolute path.
+- **VAD:** with `refineVad` on, `whisperRuntime` verifies the bundled `resources/whisper/vad/ggml-silero-v6.2.0.bin` against `whisper-vad.json`, copies it into the models folder, and the server gets `--vad -vm <path relative to the model directory>`. b5130 loads the VAD model per request; a bad file makes every request fail with `whisper_vad: failed to initialize VAD context`, which relaunches the server without VAD. `ServerStatus.vad` says whether the running process uses it.
 - **Readiness:** poll `GET /health` every 500 ms, up to 120 s. The model loads before the port opens, so connection refused during loading is normal.
 - **GPU label:** taken from the server's own log line (`whisper_backend_init_gpu: using … backend` vs `no GPU found`), not from which binary was launched — a Vulkan build on a machine with no Vulkan driver quietly runs on CPU.
 - **Fallbacks:** a Vulkan process that exits before readiness (without a model-load error) is retried on CPU, and that fallback is remembered per whisper.cpp version. A model-load failure never falls back; it reports an error.
@@ -230,6 +233,7 @@ Automated tests cannot click the tray or press hotkeys, so before a release:
 - [ ] Session: text appears within ~2 s and the `.md` grows on disk
 - [ ] A pause of 6 s starts a new paragraph with the time; Pause/Resume does too; the level meter moves while speaking
 - [ ] Two quick notes in a row go into one day file, numbered on, and the first one's paragraphs still refine
+- [ ] Quick note with long pauses: no "Thank you." paragraphs; the server tooltip shows VAD
 - [ ] Session: a paragraph closes, "refining" appears, and its text is replaced in the file with its time line kept
 - [ ] Edit a paragraph in another editor while recording → only that paragraph is skipped
 - [ ] Session: mute the microphone (Windows or hardware key) → paused; unmute → recording

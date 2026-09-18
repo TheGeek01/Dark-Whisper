@@ -11,7 +11,7 @@
    ```bash
    npm run whisper:fetch
    ```
-   Downloads the official whisper.cpp CPU build pinned in `whisper.version` into `resources/whisper/cpu`: `whisper-server.exe` for refinement, and `whisper-stream.exe` plus `SDL2.dll` for live sessions. Without this the app starts but reports that the server is not installed.
+   Downloads the official whisper.cpp CPU build pinned in `whisper.version` into `resources/whisper/cpu`: `whisper-server.exe` for refinement, and `whisper-stream.exe` plus `SDL2.dll` for live sessions, and the Silero VAD model into `resources/whisper/vad`. Without this the app starts but reports that the server is not installed.
 
    For a GPU build, point `WHISPER_SERVER_DIR` at a folder containing your own Vulkan `whisper-server.exe`, or use the `whisper-server` artifact from a CI run.
 
@@ -88,9 +88,9 @@ Prints each segment as you speak (Ctrl+C to stop). Add a capture id after the mo
 | `npm run watch` | Watch files and auto-compile |
 | `npm start` | Build and launch the app |
 | `npm run dev` | Development mode with hot reload |
-| `npm test` | Run the unit tests (332 tests) |
+| `npm test` | Run the unit tests (431 tests) |
 | `npm run lint` | Check code style |
-| `npm run whisper:fetch` | Download the pinned whisper.cpp CPU binaries |
+| `npm run whisper:fetch` | Download the pinned whisper.cpp CPU binaries and the Silero VAD model |
 | `npm run stream:probe -- <model>` | Run the live engine alone |
 | `npm run build:renderer` | Compile the window code and copy marked/DOMPurify |
 | `npm run smoke:workspace` | End-to-end check of the workspace in a throwaway vault |
