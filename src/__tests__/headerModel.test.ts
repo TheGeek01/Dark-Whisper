@@ -7,6 +7,7 @@ const server = (overrides: Partial<ServerStatusView> = {}): ServerStatusView => 
   text: 'Ready — large-v3-turbo-q5_0 (GPU)',
   modelId: 'ggml-large-v3-turbo-q5_0.bin',
   gpu: true,
+  vad: false,
   ...overrides,
 });
 

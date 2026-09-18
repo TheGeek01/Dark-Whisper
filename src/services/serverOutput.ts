@@ -1,7 +1,8 @@
-export type ServerLineEvent = 'model-load-failed' | 'bind-failed' | 'gpu-backend' | 'no-gpu';
+export type ServerLineEvent = 'model-load-failed' | 'bind-failed' | 'gpu-backend' | 'no-gpu' | 'vad-failed';
 
 // Strings from whisper.cpp b5130 (examples/server/server.cpp, src/whisper.cpp). Re-check when bumping whisper.version.
 export function classifyServerLine(line: string): ServerLineEvent | null {
+  if (line.includes('failed to initialize VAD context')) return 'vad-failed';
   if (line.includes('failed to initialize whisper context')) return 'model-load-failed';
   if (line.includes("couldn't bind to server socket")) return 'bind-failed';
   if (line.includes('whisper_backend_init_gpu: no GPU found')) return 'no-gpu';

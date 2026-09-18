@@ -32,8 +32,10 @@ function statusText(mode: ServerMode, status: ServerStatus, apiUrl: string): str
       return 'No model installed';
     case 'starting':
       return status.message ?? 'Loading model…';
-    case 'ready':
-      return `Ready — ${status.modelId ? displayName(status.modelId) : 'unknown model'} (${status.gpu ? 'GPU' : 'CPU'})`;
+    case 'ready': {
+      const name = status.modelId ? displayName(status.modelId) : 'unknown model';
+      return `Ready — ${name} (${status.gpu ? 'GPU' : 'CPU'}${status.vad ? ', VAD' : ''})`;
+    }
     case 'error':
       return `Server error: ${status.message ?? 'unknown error'}`;
     case 'stopped':

@@ -72,7 +72,7 @@ describe('WhisperServer', () => {
   }
 
   it('starts with no-model state', () => {
-    expect(setup().server.getStatus()).toEqual({ state: 'no-model', modelId: null, backend: null, gpu: false, port: null });
+    expect(setup().server.getStatus()).toEqual({ state: 'no-model', modelId: null, backend: null, gpu: false, vad: false, port: null });
   });
 
   it('spawns the vulkan build and becomes ready with a base url', async () => {
@@ -243,7 +243,7 @@ describe('WhisperServer', () => {
     await startReady(ctx);
     ctx.server.setNoModel();
     expect(ctx.procs[0].killed).toBe(true);
-    expect(ctx.server.getStatus()).toEqual({ state: 'no-model', modelId: null, backend: null, gpu: false, port: null });
+    expect(ctx.server.getStatus()).toEqual({ state: 'no-model', modelId: null, backend: null, gpu: false, vad: false, port: null });
   });
 
   it('restart relaunches the same model', async () => {
@@ -283,5 +283,65 @@ describe('WhisperServer', () => {
     await expect(ctx.server.start(...MODEL, { forceCpu: false })).resolves.toBeUndefined();
     expect(ctx.deps.spawnServer).toHaveBeenCalledTimes(1);
     expect(ctx.server.getStatus().state).toBe('starting');
+  });
+
+  it('adds VAD with a path relative to the model directory', async () => {
+    const ctx = setup();
+    await ctx.server.start('ggml-tiny.en.bin', path.join('/models', 'ggml-tiny.en.bin'), {
+      forceCpu: false,
+      vadModelPath: path.join('/models', 'ggml-silero-v6.2.0.bin'),
+    });
+    const args = ctx.deps.spawnServer.mock.calls[0][1];
+    expect(args.slice(-3)).toEqual(['--vad', '-vm', 'ggml-silero-v6.2.0.bin']);
+    ctx.deps.checkHealth.mockResolvedValue(true);
+    await jest.advanceTimersByTimeAsync(500);
+    expect(ctx.server.getStatus()).toMatchObject({ state: 'ready', vad: true });
+  });
+
+  it('reaches a VAD model above a custom model directory', async () => {
+    const ctx = setup();
+    await ctx.server.start('custom/owner__repo__m.bin', path.join('/models', 'custom', 'owner__repo__m.bin'), {
+      forceCpu: false,
+      vadModelPath: path.join('/models', 'ggml-silero-v6.2.0.bin'),
+    });
+    expect(ctx.deps.spawnServer.mock.calls[0][1].slice(-1)).toEqual([path.join('..', 'ggml-silero-v6.2.0.bin')]);
+  });
+
+  it('runs without VAD when no VAD model is given', async () => {
+    const ctx = setup();
+    await startReady(ctx);
+    expect(ctx.deps.spawnServer.mock.calls[0][1]).not.toContain('--vad');
+    expect(ctx.server.getStatus().vad).toBe(false);
+  });
+
+  it('relaunches without VAD when the server cannot load the VAD model, and keeps it off on restart', async () => {
+    const ctx = setup();
+    await ctx.server.start(...MODEL, { forceCpu: false, vadModelPath: '/models/ggml-silero-v6.2.0.bin' });
+    ctx.deps.checkHealth.mockResolvedValue(true);
+    await jest.advanceTimersByTimeAsync(500);
+    ctx.procs[0].log('whisper_vad: failed to initialize VAD context');
+    await flush();
+    expect(ctx.procs[0].killed).toBe(true);
+    expect(ctx.deps.spawnServer).toHaveBeenCalledTimes(2);
+    expect(ctx.deps.spawnServer.mock.calls[1][1]).not.toContain('--vad');
+    await jest.advanceTimersByTimeAsync(500);
+    expect(ctx.server.getStatus()).toMatchObject({ state: 'ready', vad: false });
+
+    ctx.procs[1].log('whisper_vad: failed to initialize VAD context');
+    await flush();
+    expect(ctx.deps.spawnServer).toHaveBeenCalledTimes(2);
+
+    await ctx.server.restart();
+    expect(ctx.deps.spawnServer.mock.calls[2][1]).not.toContain('--vad');
+  });
+
+  it('tries VAD again when started afresh', async () => {
+    const ctx = setup();
+    await ctx.server.start(...MODEL, { forceCpu: false, vadModelPath: '/models/ggml-silero-v6.2.0.bin' });
+    ctx.procs[0].log('whisper_vad: failed to initialize VAD context');
+    await flush();
+    await ctx.server.start(...MODEL, { forceCpu: false, vadModelPath: '/models/ggml-silero-v6.2.0.bin' });
+    const last = ctx.deps.spawnServer.mock.calls[ctx.deps.spawnServer.mock.calls.length - 1][1];
+    expect(last).toContain('--vad');
   });
 });

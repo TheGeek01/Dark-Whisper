@@ -9,6 +9,7 @@ export interface ServerStatus {
   modelId: string | null;
   backend: Backend | null;
   gpu: boolean;
+  vad: boolean;
   port: number | null;
   message?: string;
 }
@@ -45,7 +46,7 @@ export const STABLE_RESET_MS = 300_000;
 export const INFERENCE_PATH = '/v1/audio/transcriptions';
 
 export class WhisperServer {
-  private status: ServerStatus = { state: 'no-model', modelId: null, backend: null, gpu: false, port: null };
+  private status: ServerStatus = { state: 'no-model', modelId: null, backend: null, gpu: false, vad: false, port: null };
   private readonly listeners = new Set<(s: ServerStatus) => void>();
   private readonly log = new LineBuffer(500);
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
@@ -57,6 +58,10 @@ export class WhisperServer {
   private modelId: string | null = null;
   private modelPath: string | null = null;
   private forceCpu = false;
+  private vadModelPath: string | null = null;
+  // Set when the server could not load the VAD model; cleared by start().
+  private vadFailed = false;
+  private launchedWithVad = false;
 
   constructor(private readonly deps: WhisperServerDeps) {}
 
@@ -75,11 +80,13 @@ export class WhisperServer {
     };
   }
 
-  async start(modelId: string, modelPath: string, opts: { forceCpu: boolean }): Promise<void> {
+  async start(modelId: string, modelPath: string, opts: { forceCpu: boolean; vadModelPath?: string | null }): Promise<void> {
     this.halt();
     this.modelId = modelId;
     this.modelPath = modelPath;
     this.forceCpu = opts.forceCpu;
+    this.vadModelPath = opts.vadModelPath ?? null;
+    this.vadFailed = false;
     this.crashCount = 0;
     const generation = this.generation;
     try {
@@ -94,20 +101,23 @@ export class WhisperServer {
 
   async restart(): Promise<void> {
     if (this.modelId && this.modelPath) {
-      await this.start(this.modelId, this.modelPath, { forceCpu: this.forceCpu });
+      await this.start(this.modelId, this.modelPath, {
+        forceCpu: this.forceCpu,
+        vadModelPath: this.vadFailed ? null : this.vadModelPath,
+      });
     }
   }
 
   stop(): void {
     this.halt();
-    this.setStatus({ state: 'stopped', modelId: this.modelId, backend: null, gpu: false, port: null });
+    this.setStatus({ state: 'stopped', modelId: this.modelId, backend: null, gpu: false, vad: false, port: null });
   }
 
   setNoModel(): void {
     this.halt();
     this.modelId = null;
     this.modelPath = null;
-    this.setStatus({ state: 'no-model', modelId: null, backend: null, gpu: false, port: null });
+    this.setStatus({ state: 'no-model', modelId: null, backend: null, gpu: false, vad: false, port: null });
   }
 
   private halt(): void {
@@ -141,7 +151,7 @@ export class WhisperServer {
   }
 
   private fail(message: string): void {
-    this.setStatus({ ...this.status, state: 'error', port: null, gpu: false, message });
+    this.setStatus({ ...this.status, state: 'error', port: null, gpu: false, vad: false, message });
   }
 
   private async launch(backend: Backend, portRetried: boolean): Promise<void> {
@@ -164,9 +174,15 @@ export class WhisperServer {
     if (generation !== this.generation) return;
 
     this.events = new Set();
-    this.setStatus({ state: 'starting', modelId: this.modelId, backend, gpu: false, port });
+    this.setStatus({ state: 'starting', modelId: this.modelId, backend, gpu: false, vad: false, port });
+    this.launchedWithVad = this.vadModelPath !== null && !this.vadFailed;
+    // Like the model, the VAD model is passed relative to the working directory (non-ASCII paths).
+    const vadArgs = this.launchedWithVad
+      ? ['--vad', '-vm', path.relative(path.dirname(modelPath), this.vadModelPath as string)]
+      : [];
     const proc = this.deps.spawnServer(binary, [
       '-m', path.basename(modelPath), '--host', '127.0.0.1', '--port', String(port), '--inference-path', INFERENCE_PATH,
+      ...vadArgs,
     ], path.dirname(modelPath));
     this.proc = proc;
     if (proc.pid !== undefined) this.deps.writePid(proc.pid);
@@ -174,13 +190,27 @@ export class WhisperServer {
     const onData = (chunk: Buffer | string) => {
       for (const line of this.log.push(String(chunk))) {
         const event = classifyServerLine(line);
-        if (event && generation === this.generation) this.events.add(event);
+        if (!event || generation !== this.generation) continue;
+        if (event === 'vad-failed') {
+          this.onVadFailed(generation, backend);
+          continue;
+        }
+        this.events.add(event);
       }
     };
     proc.stdout.on('data', onData);
     proc.stderr.on('data', onData);
     proc.onExit((code) => this.handleExit(generation, backend, portRetried, code));
     this.pollHealth(generation, this.deps.now() + READY_TIMEOUT_MS);
+  }
+
+  // b5130 loads the VAD model per request; if it cannot, every request fails. Carry on without it.
+  private onVadFailed(generation: number, backend: Backend): void {
+    if (!this.launchedWithVad || this.vadFailed || generation !== this.generation) return;
+    this.vadFailed = true;
+    console.error('whisper-server could not load the VAD model; restarting without VAD');
+    this.halt();
+    void this.launch(backend, false);
   }
 
   private pollHealth(generation: number, deadline: number): void {
@@ -202,7 +232,7 @@ export class WhisperServer {
 
     if (healthy) {
       const gpu = this.status.backend === 'vulkan' && this.events.has('gpu-backend');
-      this.setStatus({ ...this.status, state: 'ready', gpu, message: undefined });
+      this.setStatus({ ...this.status, state: 'ready', gpu, vad: this.launchedWithVad, message: undefined });
       this.schedule(() => {
         if (generation === this.generation) this.crashCount = 0;
       }, STABLE_RESET_MS);
@@ -243,7 +273,7 @@ export class WhisperServer {
       this.fail(`Transcription server crashed repeatedly (exit code ${code}) — try enabling Force CPU in Settings`);
       return;
     }
-    this.setStatus({ ...this.status, state: 'starting', port: null, gpu: false, message: `Server crashed, restarting in ${delay / 1000}s` });
+    this.setStatus({ ...this.status, state: 'starting', port: null, gpu: false, vad: false, message: `Server crashed, restarting in ${delay / 1000}s` });
     this.schedule(() => {
       if (generation === this.generation) void this.launch(backend, false);
     }, delay);

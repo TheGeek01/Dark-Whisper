@@ -9,6 +9,11 @@ import {
 
 describe('serverOutput', () => {
   describe('classifyServerLine', () => {
+    it('recognises a VAD model the server could not load', () => {
+      expect(classifyServerLine('whisper_vad: failed to initialize VAD context')).toBe('vad-failed');
+      expect(classifyServerLine('whisper_vad: VAD is enabled, processing speech segments only')).toBeNull();
+    });
+
     it.each([
       ['error: failed to initialize whisper context', 'model-load-failed'],
       ["couldn't bind to server socket: hostname=127.0.0.1 port=5000", 'bind-failed'],

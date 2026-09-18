@@ -1,7 +1,7 @@
 import { recordingGate, toStatusView } from '../services/serverGate';
 import type { ServerStatus } from '../services/whisperServer';
 
-const base: ServerStatus = { state: 'ready', modelId: 'ggml-large-v3-turbo-q5_0.bin', backend: 'vulkan', gpu: true, port: 5000 };
+const base: ServerStatus = { state: 'ready', modelId: 'ggml-large-v3-turbo-q5_0.bin', backend: 'vulkan', gpu: true, vad: false, port: 5000 };
 
 describe('recordingGate', () => {
   it('always allows external mode', () => {
@@ -27,6 +27,8 @@ describe('toStatusView', () => {
     ['builtin', { ...base, state: 'starting', message: 'Server crashed, restarting in 5s' }, 'Server crashed, restarting in 5s'],
     ['builtin', base, 'Ready — large-v3-turbo-q5_0 (GPU)'],
     ['builtin', { ...base, gpu: false }, 'Ready — large-v3-turbo-q5_0 (CPU)'],
+    ['builtin', { ...base, vad: true }, 'Ready — large-v3-turbo-q5_0 (GPU, VAD)'],
+    ['builtin', { ...base, gpu: false, vad: true }, 'Ready — large-v3-turbo-q5_0 (CPU, VAD)'],
     ['builtin', { ...base, state: 'error', message: 'boom' }, 'Server error: boom'],
     ['builtin', { ...base, state: 'stopped' }, 'Server stopped'],
   ] as const)('%s %o', (mode, status, text) => {

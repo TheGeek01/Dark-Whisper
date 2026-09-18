@@ -11,6 +11,7 @@ export interface ServerStatusView {
   text: string;
   modelId: string | null;
   gpu: boolean;
+  vad: boolean;
   message?: string;
 }
 
