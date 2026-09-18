@@ -1,4 +1,4 @@
-import { LEVEL_FLOOR_DB, meterLevel, pcmLevelDb, SilenceTracker } from '../services/audioLevel';
+import { DeadMicDetector, LEVEL_FLOOR_DB, meterLevel, pcmLevelDb, pcmPeak, SilenceTracker } from '../services/audioLevel';
 
 function pcm(values: number[]): Buffer {
   const buffer = Buffer.alloc(values.length * 2);
@@ -106,4 +106,68 @@ describe('SilenceTracker', () => {
     expect(tracker.splitPoint(1, 4, 5)).toBeNull();
   });
 
+});
+
+describe('pcmPeak', () => {
+  it('is the largest sample magnitude', () => {
+    expect(pcmPeak(pcm([0, 1, -1, 0]))).toBe(1);
+    expect(pcmPeak(pcm([3, -1700, 200]))).toBe(1700);
+    expect(pcmPeak(pcm([-32768]))).toBe(32768);
+    expect(pcmPeak(Buffer.alloc(0))).toBe(0);
+  });
+});
+
+describe('DeadMicDetector', () => {
+  // A hardware-muted TONOR TM20 measured +/-1; a quiet room peaks in the hundreds or more.
+  function setup() {
+    const changes: boolean[] = [];
+    const detector = new DeadMicDetector((dead) => changes.push(dead));
+    const add = (seconds: number, peak: number) => {
+      for (let t = 0; t < seconds - 1e-9; t += 0.25) detector.add(0.25, peak);
+    };
+    return { detector, changes, add };
+  }
+
+  it('reports a mic that has sent nothing but digital silence for 1.5 s', () => {
+    const { changes, add } = setup();
+    add(1.25, 1);
+    expect(changes).toEqual([]);
+    add(0.25, 1);
+    expect(changes).toEqual([true]);
+    add(5, 0);
+    expect(changes).toEqual([true]);
+  });
+
+  it('reports the mic back on the first chunk with signal', () => {
+    const { changes, add } = setup();
+    add(2, 0);
+    add(0.25, 40);
+    expect(changes).toEqual([true, false]);
+    add(1, 300);
+    expect(changes).toEqual([true, false]);
+  });
+
+  it('never calls a quiet room dead', () => {
+    const { changes, add } = setup();
+    add(60, 12);
+    expect(changes).toEqual([]);
+  });
+
+  it('starts the count again after any signal', () => {
+    const { changes, add } = setup();
+    add(1.25, 0);
+    add(0.25, 50);
+    add(1.25, 0);
+    expect(changes).toEqual([]);
+  });
+
+  it('forgets its state on reset', () => {
+    const { detector, changes, add } = setup();
+    add(2, 0);
+    detector.reset();
+    add(0.25, 500);
+    expect(changes).toEqual([true]);
+    add(1.5, 0);
+    expect(changes).toEqual([true, true]);
+  });
 });

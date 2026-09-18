@@ -3,7 +3,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { meterLevel, pcmLevelDb, SilenceTracker } from './audioLevel';
+import { DeadMicDetector, meterLevel, pcmLevelDb, pcmPeak, SilenceTracker } from './audioLevel';
 import { PcmFileSink } from './pcmFileSink';
 import { getSoxPath } from './soxPath';
 import { BinaryLocations, resolveStreamBinary } from './serverPaths';
@@ -78,6 +78,17 @@ export function onAudioLevel(listener: (level: number) => void): () => void {
   return () => levelListeners.delete(listener);
 }
 
+const deadMicListeners = new Set<(dead: boolean) => void>();
+const deadMic = new DeadMicDetector((dead) => {
+  for (const listener of deadMicListeners) listener(dead);
+});
+
+// A mic muted at the device, which Windows still reports as unmuted (see DeadMicDetector).
+export function onDeadMic(listener: (dead: boolean) => void): () => void {
+  deadMicListeners.add(listener);
+  return () => deadMicListeners.delete(listener);
+}
+
 function emitLevel(db: number): void {
   const now = Date.now();
   if (now - lastLevelAt < LEVEL_INTERVAL_MS) return;
@@ -98,6 +109,7 @@ function spawnSoxSegment(session: SessionAudio): void {
     sink = new PcmFileSink(file, (startSec, durationSec, chunk) => {
       const db = pcmLevelDb(chunk);
       session.silence.add(offsetSec + startSec, durationSec, db);
+      deadMic.add(durationSec, pcmPeak(chunk));
       emitLevel(db);
     });
   } catch (error) {
@@ -160,6 +172,7 @@ export function startSessionAudio(sessionDir: string, deviceName: string): Sessi
   currentAudioIndex = 0;
   soxRestartCount = 0;
   sessionAudioActive = true;
+  deadMic.reset();
   const session: SessionAudio = { entries: [], silence: new SilenceTracker() };
   spawnSoxSegment(session);
   return session;

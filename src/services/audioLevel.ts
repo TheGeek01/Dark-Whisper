@@ -25,6 +25,48 @@ export function pcmLevelDb(chunk: Buffer): number {
   return Math.max(LEVEL_FLOOR_DB, 20 * Math.log10(rms));
 }
 
+export function pcmPeak(chunk: Buffer): number {
+  let peak = 0;
+  for (let i = 0; i + 1 < chunk.length; i += 2) {
+    peak = Math.max(peak, Math.abs(chunk.readInt16LE(i)));
+  }
+  return peak;
+}
+
+// A mic muted by its own button (the TONOR TM20's touch mute, for one) still looks unmuted to
+// Windows and sends digital silence: every sample within one step of zero. A live mic in a room
+// never does; a quiet room peaks in the hundreds.
+const DEAD_PEAK = 4;
+const DEAD_AFTER_SEC = 1.5;
+
+export class DeadMicDetector {
+  private deadSec = 0;
+  private dead = false;
+
+  constructor(private readonly onChange: (dead: boolean) => void) {}
+
+  add(durationSec: number, peak: number): void {
+    if (peak > DEAD_PEAK) {
+      this.deadSec = 0;
+      this.set(false);
+      return;
+    }
+    this.deadSec += durationSec;
+    if (this.deadSec >= DEAD_AFTER_SEC - 1e-9) this.set(true);
+  }
+
+  reset(): void {
+    this.deadSec = 0;
+    this.dead = false;
+  }
+
+  private set(dead: boolean): void {
+    if (this.dead === dead) return;
+    this.dead = dead;
+    this.onChange(dead);
+  }
+}
+
 export function meterLevel(db: number): number {
   return Math.min(1, Math.max(0, (db - LEVEL_FLOOR_DB) / -LEVEL_FLOOR_DB));
 }

@@ -147,6 +147,8 @@ session-stop → engine and SoX stopped, final block queued, duration written;
 
 Pause mutes the Windows default capture endpoint through an inline C# shim run by `powershell.exe` (`IMMDeviceEnumerator` → `IAudioEndpointVolume`). The COM declarations need `[ComImport]`, and `IAudioEndpointVolume` has **eleven** methods before `SetMute`; getting either wrong fails the cast or calls the wrong vtable slot. During a session the state is polled every second; a change from outside the app pauses or resumes. Each call starts PowerShell and compiles the shim (~0.8 s), so polling is limited to active sessions.
 
+Many USB mics (e.g. the TONOR TM20's touch mute) mute inside the device: Windows still reports the endpoint as unmuted and the mic sends digital silence (every sample within ±1). `DeadMicDetector` (`audioLevel.ts`) watches the peak of the SoX audio: 1.5 s with no sample above ±4 pauses as a mic mute (shown as muted), and the first chunk with signal resumes. A quiet room peaks in the hundreds, so ordinary silence never triggers it. A Resume clicked while the mic is still dead holds until the mic comes back and goes dead again.
+
 ## Server Supervision
 
 `whisperServer.ts` receives every dependency by injection, which is how the tests drive it with a fake process and fake timers.
@@ -236,7 +238,7 @@ Automated tests cannot click the tray or press hotkeys, so before a release:
 - [ ] Quick note with long pauses: no "Thank you." paragraphs; the server tooltip shows VAD
 - [ ] Session: a paragraph closes, "refining" appears, and its text is replaced in the file with its time line kept
 - [ ] Edit a paragraph in another editor while recording → only that paragraph is skipped
-- [ ] Session: mute the microphone (Windows or hardware key) → paused; unmute → recording
+- [ ] Session: mute the microphone (Windows, hardware key, or the mic's own mute button) → paused; unmute → recording
 - [ ] A quick note is refused during a session and vice versa (the shortcut shows a notification when the window is hidden)
 - [ ] Kill `whisper-stream.exe` → a new paragraph starts and recording continues
 - [ ] Title bar: caption buttons follow the theme; Snap Layouts and double-click-to-maximize work

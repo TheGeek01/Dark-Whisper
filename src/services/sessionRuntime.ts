@@ -16,7 +16,7 @@ import { prepareQuickNote, startRefusal } from './quickNotes';
 import { newSessionId } from './sessionPaths';
 import { CaptureDevice } from './streamOutput';
 import { getSettings } from './settingsService';
-import { SessionAudio, startLiveEngine, stopLiveEngine, streamEngine, sessionsRoot } from './streamRuntime';
+import { onDeadMic, SessionAudio, startLiveEngine, stopLiveEngine, streamEngine, sessionsRoot } from './streamRuntime';
 import { transcribeAudio } from './apiService';
 import { modelManager, whisperServer } from './whisperRuntime';
 import type { BlockEvent, BlockState, SessionKind, SessionStartRequest, SessionStatusView } from '../shared/api';
@@ -79,6 +79,8 @@ const guards = new GuardRegistry();
 let current: SessionContext | null = null;
 let statusMessage: string | undefined;
 let lastDevices: CaptureDevice[] = [];
+// The session mic is sending digital silence (muted at the device); see onDeadMic.
+let micDead = false;
 
 const micMute = new MicMuteService({
   readMute: () =>
@@ -217,7 +219,7 @@ export function sessionStatus(): SessionStatusView {
     durationSec: info?.durationSec ?? 0,
     refining,
     message: (isSessionActive() ? engine.message : undefined) ?? statusMessage,
-    muted: micMute.isMuted(),
+    muted: micDead ? true : micMute.isMuted(),
     microphone: ctx?.microphone ?? '',
     liveModel: ctx?.liveModel ?? '',
     refineModel: ctx?.refineModel ?? '',
@@ -503,6 +505,7 @@ export async function startSession(request: SessionStartRequest): Promise<Sessio
   service.onInfo(() => emit());
 
   // The first poll reports the current mute state, so a session started muted begins paused.
+  micDead = false;
   micMute.start();
   try {
     ctx.audio = await startLiveEngine({ sessionId: id, captureId: device?.index ?? null, deviceName: device?.name });
@@ -579,6 +582,12 @@ streamEngine.onStatus((status) => {
 });
 micMute.onChange((muted) => {
   void applyPause(muted, 'mic');
+});
+// A mic muted by its own button is invisible to micMute; its audio goes flat instead.
+onDeadMic((dead) => {
+  micDead = dead;
+  void applyPause(dead, 'mic');
+  emit();
 });
 // The server coming up (or going away) changes whether queued blocks may run.
 whisperServer.onStatus(() => {

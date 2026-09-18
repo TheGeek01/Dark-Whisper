@@ -12,7 +12,7 @@ Transcription runs on a **built-in [whisper.cpp](https://github.com/ggml-org/whi
 - **Paragraph Refinement** - Each finished paragraph is re-transcribed with your main model and replaced in the file, unless you have edited it; silent paragraphs are skipped with Silero VAD, so Whisper's invented "Thank you." never lands in your notes
 - **Workspace** - Vault library with pinned Quick Notes, folder counts, recent documents and full-text search that jumps to the matching line; the document with its times in the margin; a details panel with each paragraph's refinement state
 - **Light and Dark Themes** - Switch from the header; the window draws its own title bar
-- **Mic Mute as Pause** - Muting the microphone (in Windows or with a hardware key) pauses recording
+- **Mic Mute as Pause** - Muting the microphone (in Windows, with a hardware key, or with the mute button on the mic itself) pauses recording
 - **Built-in Transcription Server** - Bundled whisper.cpp server, started and supervised by the app; no separate install
 - **Speech Model Manager** - Download SHA256-verified GGML models from Hugging Face, or paste your own model link
 - **GPU Acceleration** - Vulkan build works on NVIDIA, AMD and Intel GPUs, with automatic CPU fallback
@@ -694,6 +694,7 @@ When reporting a transcription problem, please include the status line text and,
 - Quick notes: Ctrl+Q (or Quick Notes in the header) records into one file per day in the Quick Notes folder, with a date and time at the start of each note.
 - Recordings are split into paragraphs after 5 seconds of silence (adjustable), each with its time in the margin. Each paragraph is refined on its own.
 - New look: a header with Record, Stop and Pause, a sidebar with pinned Quick Notes, folder counts and recent documents, a collapsible details panel, and a light theme.
+- Muting a microphone with its own mute button (which Windows does not see) now pauses recording too; unmuting resumes.
 - Silent paragraphs are skipped: the built-in server uses Silero VAD, so "Thank you." and similar invented text no longer appear.
 - Search results now jump to the matching line.
 - Font size and focus mode for reading.
