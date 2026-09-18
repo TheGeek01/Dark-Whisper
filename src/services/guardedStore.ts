@@ -1,4 +1,4 @@
-import { BlockRef, changedBlocks, DocumentStore, ReplaceOutcome } from './documentStore';
+import { BlockRef, changedBlocks, DocumentStore, RemoveOutcome, ReplaceOutcome } from './documentStore';
 import type { SessionStoreLike } from './sessionService';
 
 // Called with the indexes of the blocks whose text another program changed (possibly none,
@@ -63,6 +63,13 @@ export class GuardedStore implements SessionStoreLike {
   replaceBlock(file: string, index: number, text: string, expectedHash: string): ReplaceOutcome {
     this.checkForOutsideEdit(file);
     const outcome = this.store.replaceBlock(file, index, text, expectedHash);
+    this.noteWrite(file);
+    return outcome;
+  }
+
+  removeBlock(file: string, index: number, expectedHash: string): RemoveOutcome {
+    this.checkForOutsideEdit(file);
+    const outcome = this.store.removeBlock(file, index, expectedHash);
     this.noteWrite(file);
     return outcome;
   }

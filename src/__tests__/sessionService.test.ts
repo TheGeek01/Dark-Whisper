@@ -32,6 +32,13 @@ function fakeStore() {
       blocks.set(index, text);
       return 'replaced';
     },
+    removeBlock: (_file, index, expectedHash) => {
+      const current = blocks.get(index);
+      if (current === undefined) return 'missing';
+      if (hashText(current) !== expectedHash) return 'skipped-edited';
+      blocks.delete(index);
+      return 'removed';
+    },
     updateFrontmatter: (_file, patch) => {
       duration = patch.duration;
     },
@@ -375,5 +382,31 @@ describe('SessionService', () => {
     expect(ctx.blocks.get(1)).toBe('rough');
     expect(ctx.service.applyRefinement(2, ' More words.\n  And a second line. \n')).toBe('replaced');
     expect(ctx.blocks.get(2)).toBe('More words.\nAnd a second line.');
+  });
+
+  it('removes a paragraph that VAD found silent, unless it was edited', () => {
+    const ctx = setup();
+    ctx.service.segment({ text: 'Thanks a lot', atMs: 1_000 });
+    ctx.service.setPaused(true, 2_000);
+    ctx.service.setPaused(false, 3_000);
+    ctx.service.segment({ text: 'second', atMs: 4_000 });
+    ctx.service.end();
+
+    expect(ctx.service.applyRefinement(1, '', { vad: true })).toBe('removed');
+    expect(ctx.blocks.has(1)).toBe(false);
+    expect(ctx.service.applyRefinement(1, 'late', { vad: true })).toBe('missing');
+
+    ctx.blocks.set(2, 'second, edited');
+    expect(ctx.service.applyRefinement(2, ' ', { vad: true })).toBe('skipped-edited');
+    expect(ctx.blocks.get(2)).toBe('second, edited');
+  });
+
+  it('keeps the live text for an empty result without VAD', () => {
+    const ctx = setup();
+    ctx.service.segment({ text: 'rough', atMs: 1_000 });
+    ctx.service.end();
+    expect(ctx.service.applyRefinement(1, '', { vad: false })).toBe('no-speech');
+    expect(ctx.service.applyRefinement(1, '')).toBe('no-speech');
+    expect(ctx.blocks.get(1)).toBe('rough');
   });
 });

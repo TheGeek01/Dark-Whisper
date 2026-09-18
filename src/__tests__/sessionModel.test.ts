@@ -122,6 +122,14 @@ describe('sessionModel', () => {
     expect(sessionSummary(status({ state: 'recording', durationSec: 3725 }))).toBe('Recording · 1:02:05');
     expect(sessionSummary(status({ state: 'idle' }))).toBe('No session');
   });
+
+  it('treats a removed paragraph as finished', () => {
+    expect(BLOCK_LABELS.removed).toBe('removed — no speech');
+    let model = applyStatus(emptySessionModel(), status());
+    model = applyBlock(model, block(1, 'removed'));
+    model = applyBlock(model, block(1, 'refining'));
+    expect(model.blocks).toEqual([block(1, 'removed')]);
+  });
 });
 
 describe('state', () => {

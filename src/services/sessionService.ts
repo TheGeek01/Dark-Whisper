@@ -1,12 +1,12 @@
 import type { SplitFinder } from './audioLevel';
-import { BlockRef, formatClockLine, hashText, ReplaceOutcome } from './documentStore';
+import { BlockRef, formatClockLine, hashText, RemoveOutcome, ReplaceOutcome } from './documentStore';
 import { isFillerText, repeatsRecent } from './liveFilter';
 import { isNoiseSegment } from './streamOutput';
 
 // Live text is compared with what was written this long before it (liveFilter).
 const RECENT_TEXT_SEC = 15;
 
-export type RefineOutcome = ReplaceOutcome | 'no-speech';
+export type RefineOutcome = ReplaceOutcome | 'no-speech' | 'removed';
 
 export type SessionState = 'recording' | 'paused' | 'stopped';
 
@@ -42,6 +42,7 @@ export interface SessionStoreLike {
   appendSegment(file: string, text: string): void;
   readBlockText(file: string, index: number): string | null;
   replaceBlock(file: string, index: number, text: string, expectedHash: string): ReplaceOutcome;
+  removeBlock(file: string, index: number, expectedHash: string): RemoveOutcome;
   updateFrontmatter(file: string, patch: { duration: number }): void;
 }
 
@@ -251,12 +252,18 @@ export class SessionService {
     this.emit();
   }
 
-  // A refinement that heard nothing (silence, a stray ".") keeps the live text. whisper-server
-  // starts each line after the first with a space; those are trimmed.
-  applyRefinement(blockIndex: number, text: string): RefineOutcome {
+  // A refinement that heard nothing (silence, a stray "."): with VAD that is reliable, so the
+  // paragraph (whose live text was invented) is removed; without VAD the live text is kept.
+  // whisper-server starts each line after the first with a space; those are trimmed.
+  applyRefinement(blockIndex: number, text: string, opts: { vad: boolean } = { vad: false }): RefineOutcome {
     const hash = this.hashes.get(blockIndex);
     if (hash === undefined) return 'missing';
-    if (isNoiseSegment(text)) return 'no-speech';
+    if (isNoiseSegment(text)) {
+      if (!opts.vad) return 'no-speech';
+      const removed = this.deps.store.removeBlock(this.info.documentPath, blockIndex, hash);
+      if (removed === 'removed') this.hashes.delete(blockIndex);
+      return removed;
+    }
     const clean = text
       .split('\n')
       .map((line) => line.trim())

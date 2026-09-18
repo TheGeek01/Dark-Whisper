@@ -88,6 +88,13 @@ describe('RefineQueue', () => {
     expect(ctx.events).toContainEqual({ kind: 'skipped', blockIndex: 1, message: 'no speech heard; live text kept' });
   });
 
+  it('reports a paragraph removed for having no speech', async () => {
+    const ctx = setup({ apply: jest.fn(() => 'removed' as const) });
+    ctx.queue.enqueue(JOB);
+    await ctx.queue.drain();
+    expect(ctx.events).toContainEqual({ kind: 'removed', blockIndex: 1 });
+  });
+
   it('retries once, then fails without stopping the queue', async () => {
     const transcribe = jest
       .fn<Promise<string>, [string]>()

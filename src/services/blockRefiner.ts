@@ -12,7 +12,7 @@ export function shouldRefineDuringRecording(mode: RefineMode, liveModelBytes: nu
 }
 
 export type RefineEvent = {
-  kind: 'started' | 'replaced' | 'skipped' | 'failed';
+  kind: 'started' | 'replaced' | 'removed' | 'skipped' | 'failed';
   blockIndex: number;
   message?: string;
 };
@@ -21,7 +21,7 @@ export interface RefineDeps {
   sliceAudio(job: RefineJob): Promise<string | null>;
   transcribe(wavPath: string): Promise<string>;
   cleanup(wavPath: string): void;
-  apply(blockIndex: number, text: string): 'replaced' | 'skipped-edited' | 'missing' | 'no-speech';
+  apply(blockIndex: number, text: string): 'replaced' | 'skipped-edited' | 'missing' | 'no-speech' | 'removed';
   report(event: RefineEvent): void;
 }
 
@@ -88,6 +88,8 @@ export class RefineQueue {
         const outcome = this.deps.apply(job.blockIndex, text);
         if (outcome === 'replaced') {
           this.deps.report({ kind: 'replaced', blockIndex: job.blockIndex });
+        } else if (outcome === 'removed') {
+          this.deps.report({ kind: 'removed', blockIndex: job.blockIndex });
         } else if (outcome === 'no-speech') {
           this.deps.report({ kind: 'skipped', blockIndex: job.blockIndex, message: 'no speech heard; live text kept' });
         } else if (outcome === 'skipped-edited') {

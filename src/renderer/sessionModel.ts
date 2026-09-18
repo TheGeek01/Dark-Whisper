@@ -16,6 +16,7 @@ const RANK: Record<BlockState, number> = {
   queued: 1,
   refining: 2,
   refined: 3,
+  removed: 3,
   skipped: 3,
   failed: 3,
 };
@@ -26,6 +27,7 @@ export const BLOCK_LABELS: Record<BlockState, string> = {
   queued: 'pending',
   refining: 'refining…',
   refined: 'refined',
+  removed: 'removed — no speech',
   skipped: 'skipped',
   failed: 'failed',
 };

@@ -29,6 +29,7 @@ const MAX_MESSAGES = 50;
 const REFINE_STATE: Record<RefineEvent['kind'], BlockState> = {
   started: 'refining',
   replaced: 'refined',
+  removed: 'removed',
   skipped: 'skipped',
   failed: 'failed',
 };
@@ -441,7 +442,10 @@ export async function startSession(request: SessionStartRequest): Promise<Sessio
     sliceAudio: (job) => (ctx ? sliceAudio(ctx, job) : Promise.resolve(null)),
     transcribe: (wav) => transcribeAudio(wav),
     cleanup: (wav) => fs.rmSync(wav, { force: true }),
-    apply: (blockIndex, text) => service.applyRefinement(blockIndex, text),
+    apply: (blockIndex, text) =>
+      service.applyRefinement(blockIndex, text, {
+        vad: getSettings().serverMode === 'builtin' && whisperServer.getStatus().vad,
+      }),
     report: (event) => {
       if (ctx) {
         recordBlock(ctx, event.blockIndex, REFINE_STATE[event.kind], event.message);

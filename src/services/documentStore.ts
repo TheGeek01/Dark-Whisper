@@ -32,6 +32,7 @@ export interface SearchHit {
 }
 
 export type ReplaceOutcome = 'replaced' | 'skipped-edited' | 'missing';
+export type RemoveOutcome = 'removed' | 'skipped-edited' | 'missing';
 
 export function blockMarker(block: BlockRef): string {
   return `<!-- dw:block ${block.index} t=${block.startSec}-${block.endSec} -->`;
@@ -241,6 +242,19 @@ export class DocumentStore {
     const next = [...bounds.lines.slice(0, bounds.startLine + 1), ...replacement, ...bounds.lines.slice(bounds.endLine)];
     this.write(file, next.join('\n'));
     return 'replaced';
+  }
+
+  // A paragraph that turned out to hold no speech (spec §5). The block runs from its marker to the
+  // next marker, which includes the blank line written before that next marker, so removing the
+  // range leaves exactly one blank line between the neighbours.
+  removeBlock(file: string, index: number, expectedHash: string): RemoveOutcome {
+    const bounds = this.blockBounds(file, index);
+    if (!bounds) return 'missing';
+    const current = this.readBlockText(file, index) ?? '';
+    if (hashText(current) !== expectedHash) return 'skipped-edited';
+    const next = [...bounds.lines.slice(0, bounds.startLine), ...bounds.lines.slice(bounds.endLine)];
+    this.write(file, next.join('\n'));
+    return 'removed';
   }
 
   updateFrontmatter(file: string, patch: Partial<Frontmatter>): void {

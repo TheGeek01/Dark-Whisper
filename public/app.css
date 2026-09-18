@@ -229,6 +229,7 @@ kbd { font: inherit; font-size: 11px; color: var(--muted); border: 1px solid var
 .badge.queued, .badge.refining { background: var(--info-soft); color: var(--info); }
 .badge.refined { background: var(--ok-soft); color: var(--ok); }
 .badge.failed, .badge.skipped { color: var(--danger); }
+.badge.removed { color: var(--muted); text-decoration: line-through; }
 
 /* == Panel == */
 .panel { position: relative; min-height: 0; overflow-y: auto; border-left: 1px solid var(--border); background: var(--bg); }

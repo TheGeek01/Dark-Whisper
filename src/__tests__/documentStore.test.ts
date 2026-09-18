@@ -364,4 +364,44 @@ describe('DocumentStore with clock lines', () => {
     fs.mkdirSync(file, { recursive: true });
     expect(() => store.openOrCreate(file, FM)).toThrow();
   });
+
+  function threeBlocks() {
+    const file = store.createDocument('s1', FM);
+    for (const [index, text] of [[1, 'one'], [2, 'Thank you.'], [3, 'three']] as const) {
+      store.openBlock(file, { index, startSec: index, endSec: index }, `**14:3${index}**`);
+      store.appendSegment(file, text);
+    }
+    return file;
+  }
+
+  it('removes one paragraph and nothing else', () => {
+    const file = threeBlocks();
+    expect(store.removeBlock(file, 2, hashText('Thank you.'))).toBe('removed');
+    const content = fs.readFileSync(file, 'utf8');
+    expect(content).not.toContain('Thank you.');
+    expect(content).not.toContain('dw:block 2');
+    expect(content).toContain('<!-- dw:block 1 t=1-1 -->\n**14:31**\none\n\n<!-- dw:block 3 t=3-3 -->\n**14:33**\nthree\n');
+  });
+
+  it('removes the last paragraph, leaving one newline at the end', () => {
+    const file = threeBlocks();
+    expect(store.removeBlock(file, 3, hashText('three'))).toBe('removed');
+    expect(fs.readFileSync(file, 'utf8').endsWith('**14:32**\nThank you.\n')).toBe(true);
+  });
+
+  it('keeps an edited paragraph and reports a missing one', () => {
+    const file = threeBlocks();
+    expect(store.removeBlock(file, 2, hashText('something else'))).toBe('skipped-edited');
+    expect(store.removeBlock(file, 9, hashText('x'))).toBe('missing');
+    expect(fs.readFileSync(file, 'utf8')).toContain('Thank you.');
+  });
+
+  it('keeps Windows line endings when removing', () => {
+    const file = threeBlocks();
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/\n/g, '\r\n'));
+    expect(store.removeBlock(file, 2, hashText('Thank you.'))).toBe('removed');
+    const content = fs.readFileSync(file, 'utf8');
+    expect(content).toContain('one\r\n\r\n<!-- dw:block 3 t=3-3 -->\r\n');
+    expect(content.replace(/\r\n/g, '')).not.toContain('\n');
+  });
 });
