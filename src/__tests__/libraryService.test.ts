@@ -103,6 +103,15 @@ describe('LibraryService changes', () => {
     expect(() => v.service.rename('big-ideas.md', '   ')).toThrow(LibraryPathError);
   });
 
+  it('renames a note whose name differs only in letter case without a suffix', () => {
+    const v = vault();
+    v.write('Ideas.md', 'plain');
+    expect(v.service.rename('Ideas.md', 'Ideas')).toBe('ideas.md');
+    expect(fs.readdirSync(v.root)).toEqual(['ideas.md']);
+    v.write('other.md', 'other');
+    expect(v.service.rename('other.md', 'IDEAS')).toBe('ideas-2.md');
+  });
+
   it('moves a document into a folder, suffixing on a clash, and back to the root', () => {
     const v = vault();
     v.write('a.md', '1');

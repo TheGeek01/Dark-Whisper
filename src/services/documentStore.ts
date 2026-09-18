@@ -83,6 +83,18 @@ export function formatClockLine(date: Date, withDate: boolean): string {
   return withDate ? `**${localDateStamp(date)} ${time}**` : `**${time}**`;
 }
 
+// Windows file names ignore case, so "ideas.md" exists when the file is "Ideas.md". A rename that
+// only changes case must not see its own file as a clash: compare file identity, not the path.
+export function isSameFile(a: string, b: string): boolean {
+  try {
+    const x = fs.statSync(a, { bigint: true });
+    const y = fs.statSync(b, { bigint: true });
+    return x.ino === y.ino && x.dev === y.dev;
+  } catch {
+    return false;
+  }
+}
+
 export function slugify(title: string): string {
   const slug = title
     .toLowerCase()
@@ -318,7 +330,7 @@ export class DocumentStore {
     const prefix = path.basename(file, '.md').split('-').slice(0, 4).join('-');
     let target = path.join(dir, `${prefix}-${slugify(title)}.md`);
     let attempt = 2;
-    while (fs.existsSync(target) && target !== file) {
+    while (fs.existsSync(target) && !isSameFile(target, file)) {
       target = path.join(dir, `${prefix}-${slugify(title)}-${attempt}.md`);
       attempt++;
     }

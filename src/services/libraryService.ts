@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { DocumentContent, FolderNode, LibraryDocument, LibrarySearchHit, LibraryTree } from '../shared/api';
-import { DocumentStore, parseFrontmatter, slugify } from './documentStore';
+import { DocumentStore, isSameFile, parseFrontmatter, slugify } from './documentStore';
 import { isHiddenPath } from './libraryWatch';
 
 export class LibraryPathError extends Error {}
@@ -194,7 +194,7 @@ export class LibraryService {
 
   private freePath(dir: string, stem: string, current?: string): string {
     let candidate = path.join(dir, `${stem}.md`);
-    for (let n = 2; fs.existsSync(candidate) && candidate !== current; n++) {
+    for (let n = 2; fs.existsSync(candidate) && !(current && isSameFile(candidate, current)); n++) {
       candidate = path.join(dir, `${stem}-${n}.md`);
     }
     return candidate;
