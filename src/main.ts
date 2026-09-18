@@ -2,7 +2,8 @@ import './appIdentity';
 import { app, BrowserWindow, clipboard, globalShortcut, Menu, Tray, ipcMain, Notification, shell } from 'electron';
 import path from 'path';
 import * as fs from 'fs';
-import registerShortcuts from './services/hotkeyService';
+import { registerShortcuts } from './services/shortcutRegistry';
+import { displayShortcut, SHORTCUT_ACTIONS, SHORTCUT_SETTINGS, ShortcutAction, ShortcutResult } from './shared/shortcuts';
 import { setApiConfig, BUILTIN_TIMEOUT_MS, EXTERNAL_TIMEOUT_MS } from './services/apiService';
 import { DEFAULT_VAULT_PATH, getSettings, saveSettings } from './services/settingsService';
 import { cleanupStaleServer, modelManager, openServerLog, startBuiltinServer, whisperServer } from './services/whisperRuntime';
@@ -31,7 +32,9 @@ import { onLibraryChanged, registerLibraryIpc, stopWatching, watchVault } from '
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
-let currentShortcut = 'Ctrl+Q';
+let shortcutStatus: Record<ShortcutAction, ShortcutResult> = { quickNote: 'none', record: 'none', pause: 'none', stop: 'none' };
+// The folder selected in the sidebar, where the Record shortcut starts a session.
+let selectedFolder = '';
 // The window, taskbar and tray icon; the packaged exe gets the same file from electron-builder.
 const APP_ICON = path.join(app.getAppPath(), 'assets', 'dark-whisper.ico');
 
@@ -162,11 +165,11 @@ const handleServerStatus = () => {
   updateTrayTooltip();
 };
 
-// The shortcut, the tray and the header button all toggle a quick note (spec §3.4). A refusal
-// (a session is recording) is shown in the window, and as a notification when it is hidden.
-const handleQuickNoteToggle = async () => {
+// Shortcuts and the tray act outside a renderer call. A refusal (e.g. a quick note during a
+// session) is shown in the window, and as a notification when it is hidden (spec §3.4).
+const runAction = async (action: () => Promise<unknown>) => {
   try {
-    await toggleQuickNote();
+    await action();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     mainWindow?.webContents.send('error', { message });
@@ -174,9 +177,44 @@ const handleQuickNoteToggle = async () => {
   }
 };
 
-const registerQuickNoteShortcut = (shortcut: string) => {
-  globalShortcut.unregisterAll();
-  registerShortcuts(() => void handleQuickNoteToggle(), shortcut);
+const handleQuickNoteToggle = () => runAction(toggleQuickNote);
+
+// Like the header buttons: Record does nothing while something records (the button is
+// disabled), and Pause and Stop do nothing when there is nothing to pause or stop.
+const shortcutHandlers: Record<ShortcutAction, () => void> = {
+  quickNote: () => void handleQuickNoteToggle(),
+  record: () =>
+    void runAction(async () => {
+      if (!isSessionActive()) await startSession({ kind: 'session', folder: selectedFolder });
+    }),
+  pause: () =>
+    void runAction(async () => {
+      const state = sessionStatus().state;
+      if (state === 'paused') await resumeSession();
+      else if (state === 'recording') await pauseSession();
+    }),
+  stop: () =>
+    void runAction(async () => {
+      if (isSessionActive()) await stopSession();
+    }),
+};
+
+const applyShortcuts = () => {
+  const settings = getSettings();
+  const bindings = Object.fromEntries(
+    SHORTCUT_ACTIONS.map((action) => [action, settings[SHORTCUT_SETTINGS[action]]]),
+  ) as Record<ShortcutAction, string>;
+  shortcutStatus = registerShortcuts(
+    { register: (accelerator, handler) => globalShortcut.register(accelerator, handler), unregisterAll: () => globalShortcut.unregisterAll() },
+    bindings,
+    shortcutHandlers,
+  );
+  for (const action of SHORTCUT_ACTIONS) {
+    if (shortcutStatus[action] === 'taken' || shortcutStatus[action] === 'invalid') {
+      console.warn(`Shortcut ${bindings[action]} (${action}) could not be registered: ${shortcutStatus[action]}`);
+    }
+  }
+  tray?.setContextMenu(buildTrayMenu());
 };
 
 const runDownload = (requestedId: string, start: () => Promise<DownloadProgress>) => {
@@ -213,7 +251,7 @@ const buildTrayMenu = () =>
       },
     },
     {
-      label: `Quick note (${currentShortcut})`,
+      label: shortcutStatus.quickNote === 'ok' ? `Quick note (${displayShortcut(getSettings().shortcut)})` : 'Quick note',
       click: () => void handleQuickNoteToggle(),
     },
     {
@@ -250,7 +288,6 @@ const createTray = () => {
 app.on('ready', () => {
   if (!gotTheLock) return;
   const settings = getSettings();
-  currentShortcut = settings.shortcut;
 
   // Enable auto-start on Windows startup (minimized to tray). Dev and smoke launches are never
   // packaged, so this never registers a login item outside a real install.
@@ -264,7 +301,7 @@ app.on('ready', () => {
 
   createWindow();
   createTray();
-  registerQuickNoteShortcut(settings.shortcut);
+  applyShortcuts();
 
   whisperServer.onStatus(handleServerStatus);
   onSessionStatus((view) => {
@@ -350,13 +387,22 @@ ipcMain.handle('save-settings', async (_event, settings: any) => {
   }
   handleServerStatus();
 
-  if (after.shortcut !== before.shortcut) {
-    currentShortcut = after.shortcut;
-    registerQuickNoteShortcut(after.shortcut);
-    tray?.setContextMenu(buildTrayMenu());
+  if (SHORTCUT_ACTIONS.some((action) => before[SHORTCUT_SETTINGS[action]] !== after[SHORTCUT_SETTINGS[action]])) {
+    applyShortcuts();
   }
 
-  return { success: true };
+  return { success: true, shortcuts: shortcutStatus };
+});
+
+ipcMain.handle('shortcut-status', () => shortcutStatus);
+
+ipcMain.on('shortcuts-suspend', (_event, suspended: unknown) => {
+  if (suspended === true) globalShortcut.unregisterAll();
+  else applyShortcuts();
+});
+
+ipcMain.on('selected-folder', (_event, folder: unknown) => {
+  selectedFolder = typeof folder === 'string' ? folder : '';
 });
 
 ipcMain.handle('get-server-status', () => currentStatusView());

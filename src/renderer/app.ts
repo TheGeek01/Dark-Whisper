@@ -5,7 +5,7 @@ import { initLibrary } from './library.js';
 import { initSessionPanel } from './sessionPanel.js';
 import { initTheme } from './theme.js';
 import { applyBlock, applySegment, applyStatus } from './sessionModel.js';
-import { getState, update } from './state.js';
+import { getState, subscribe, update } from './state.js';
 import { reportError } from './toast.js';
 
 function initSession(): void {
@@ -22,3 +22,7 @@ initLibrary();
 initDocument();
 initSessionPanel();
 initSession();
+window.api.setSelectedFolder(getState().selectedFolder);
+subscribe((state, changed) => {
+  if (changed.has('selectedFolder')) window.api.setSelectedFolder(state.selectedFolder);
+});

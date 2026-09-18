@@ -11,6 +11,9 @@ const api: DarkWhisperApi = {
 
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
+  getShortcutStatus: () => ipcRenderer.invoke('shortcut-status'),
+  suspendShortcuts: (suspended) => ipcRenderer.send('shortcuts-suspend', suspended),
+  setSelectedFolder: (folder) => ipcRenderer.send('selected-folder', folder),
   getServerStatus: () => ipcRenderer.invoke('get-server-status'),
   restartServer: () => ipcRenderer.invoke('restart-server'),
   openServerLog: () => ipcRenderer.invoke('open-server-log'),

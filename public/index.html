@@ -103,9 +103,22 @@
     <form method="dialog">
       <h2>Settings</h2>
 
-      <h3>Quick notes</h3>
-      <label for="shortcutInput">Quick note shortcut</label>
-      <input type="text" id="shortcutInput" placeholder="e.g. Ctrl+Q, Alt+R">
+      <h3>Shortcuts</h3>
+      <p class="hint">These work from any app. Click a box and press the keys: Esc cancels, Backspace clears.</p>
+      <div class="shortcut-grid">
+        <label for="shortcutQuickNote">Quick Notes</label>
+        <input type="text" class="shortcut-input" id="shortcutQuickNote" readonly>
+        <span class="shortcut-note" id="shortcutQuickNoteNote"></span>
+        <label for="shortcutRecord">Record / New Session</label>
+        <input type="text" class="shortcut-input" id="shortcutRecord" readonly>
+        <span class="shortcut-note" id="shortcutRecordNote"></span>
+        <label for="shortcutPause">Pause / Resume</label>
+        <input type="text" class="shortcut-input" id="shortcutPause" readonly>
+        <span class="shortcut-note" id="shortcutPauseNote"></span>
+        <label for="shortcutStop">Stop</label>
+        <input type="text" class="shortcut-input" id="shortcutStop" readonly>
+        <span class="shortcut-note" id="shortcutStopNote"></span>
+      </div>
       <p class="hint">Quick notes go to the Quick Notes folder, one file per day.</p>
 
       <h3>Transcription server</h3>

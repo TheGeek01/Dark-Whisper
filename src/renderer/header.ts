@@ -1,4 +1,5 @@
 import type { ServerStatusView, SettingsView } from '../shared/api.js';
+import { displayShortcut } from '../shared/shortcuts.js';
 import { openModels, openSettings, startModelDownload } from './dialogs.js';
 import { byId } from './dom.js';
 import { headerStatus, modelChipText } from './headerModel.js';
@@ -27,11 +28,10 @@ function render(): void {
   byId('serverLogBtn').hidden = !failed;
   byId('setupBanner').hidden = !(server?.mode === 'builtin' && server.state === 'no-model');
 
-  const shortcut = settings?.shortcut ?? 'Ctrl+Q';
   const quickBtn = byId<HTMLButtonElement>('quickNoteBtn');
   quickBtn.classList.toggle('active', quick);
   quickBtn.disabled = (running && !quick) || noVault;
-  quickBtn.title = quick ? `Stop the quick note (${shortcut})` : `Start a quick note in today's file (${shortcut})`;
+  quickBtn.title = (quick ? 'Stop the quick note' : "Start a quick note in today's file") + keys(settings?.shortcut);
   byId('quickNoteLabel').textContent = quick ? 'Stop quick note' : 'Quick Notes';
 
   const record = byId<HTMLButtonElement>('recordBtn');
@@ -39,16 +39,24 @@ function render(): void {
   record.classList.toggle('recording', running && !quick);
   byId('recordLabel').textContent = running && !quick ? 'Recording' : 'Record';
   const folder = getState().selectedFolder;
-  record.title = `Start a session in ${folder || 'the vault root'}`;
+  record.title = `Start a session in ${folder || 'the vault root'}${keys(settings?.recordShortcut)}`;
 
   const paused = status?.state === 'paused';
   const pause = byId<HTMLButtonElement>('pauseBtn');
   pause.disabled = !running || status?.state === 'error' || status?.state === 'starting';
   byId('pauseLabel').textContent = paused ? 'Resume' : 'Pause';
+  pause.title = (paused ? 'Resume' : 'Pause') + keys(settings?.pauseShortcut);
   byId('pauseIcon').className = `i ${paused ? 'i-play' : 'i-pause'}`;
-  byId<HTMLButtonElement>('stopBtn').disabled = !running;
+  const stop = byId<HTMLButtonElement>('stopBtn');
+  stop.disabled = !running;
+  stop.title = `Stop${keys(settings?.stopShortcut)}`;
 
   byId('modelChipText').textContent = settings ? modelChipText(settings) : '…';
+}
+
+// " (Ctrl+Alt+P)" for a button's tooltip, or nothing when the action has no shortcut.
+function keys(shortcut: string | undefined): string {
+  return shortcut ? ` (${displayShortcut(shortcut)})` : '';
 }
 
 export function setSettings(value: SettingsView): void {

@@ -1,5 +1,8 @@
 // Types shared by the main process, the preload bridge and the renderer.
-// Types only, and no imports: the renderer build must never pull in main-process modules.
+// Types only, importing nothing but other shared/ modules: the renderer build must never pull in
+// main-process modules.
+
+import type { ShortcutAction, ShortcutResult } from './shortcuts';
 
 export type ServerMode = 'builtin' | 'external';
 export type RefineMode = 'auto' | 'always' | 'afterStop';
@@ -43,6 +46,9 @@ export interface DownloadProgressView {
 
 export interface SettingsView {
   shortcut: string;
+  recordShortcut: string;
+  pauseShortcut: string;
+  stopShortcut: string;
   apiUrl: string;
   apiToken: string;
   serverMode: ServerMode;
@@ -157,7 +163,13 @@ export interface DarkWhisperApi {
   copyText(text: string): Promise<void>;
   // Settings, server, models
   getSettings(): Promise<SettingsView>;
-  saveSettings(settings: Partial<SettingsView>): Promise<{ success: boolean }>;
+  // Saving re-registers the global shortcuts and reports how each one went.
+  saveSettings(settings: Partial<SettingsView>): Promise<{ success: boolean; shortcuts: Record<ShortcutAction, ShortcutResult> }>;
+  getShortcutStatus(): Promise<Record<ShortcutAction, ShortcutResult>>;
+  // While a Settings field records keys, the global shortcuts must not swallow them.
+  suspendShortcuts(suspended: boolean): void;
+  // The Record shortcut starts a session in the folder selected in the sidebar.
+  setSelectedFolder(folder: string): void;
   getServerStatus(): Promise<ServerStatusView>;
   restartServer(): Promise<void>;
   openServerLog(): Promise<void>;

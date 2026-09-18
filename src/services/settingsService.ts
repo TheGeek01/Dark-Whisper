@@ -5,9 +5,13 @@ import Store from 'electron-store';
 import type { RefineMode } from './blockRefiner';
 import type { ThemeName } from '../shared/api';
 import { clampSilenceGap, DEFAULT_SILENCE_GAP_SECONDS, initialServerMode, normalizeTheme, ServerMode } from './settingsMigration';
+import { DEFAULT_SHORTCUTS } from '../shared/shortcuts';
 
 export interface Settings {
   shortcut: string;
+  recordShortcut: string;
+  pauseShortcut: string;
+  stopShortcut: string;
   apiUrl: string;
   apiToken: string;
   serverMode: ServerMode;
@@ -36,7 +40,10 @@ const configFileExisted = fs.existsSync(path.join(app.getPath('userData'), 'conf
 const store = new Store({
   name: 'config',
   defaults: {
-    shortcut: 'Ctrl+Q',
+    shortcut: DEFAULT_SHORTCUTS.quickNote,
+    recordShortcut: DEFAULT_SHORTCUTS.record,
+    pauseShortcut: DEFAULT_SHORTCUTS.pause,
+    stopShortcut: DEFAULT_SHORTCUTS.stop,
     apiUrl: 'http://127.0.0.1:4444',
     apiToken: '',
     modelId: null,
@@ -64,7 +71,10 @@ if (!storeAny.has('serverMode')) {
 
 export function getSettings(): Settings {
   return {
-    shortcut: storeAny.get('shortcut', 'Ctrl+Q'),
+    shortcut: storeAny.get('shortcut', DEFAULT_SHORTCUTS.quickNote),
+    recordShortcut: storeAny.get('recordShortcut', DEFAULT_SHORTCUTS.record),
+    pauseShortcut: storeAny.get('pauseShortcut', DEFAULT_SHORTCUTS.pause),
+    stopShortcut: storeAny.get('stopShortcut', DEFAULT_SHORTCUTS.stop),
     apiUrl: storeAny.get('apiUrl', 'http://127.0.0.1:4444'),
     apiToken: storeAny.get('apiToken', ''),
     serverMode: storeAny.get('serverMode', 'builtin'),

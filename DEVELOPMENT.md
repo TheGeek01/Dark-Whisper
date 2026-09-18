@@ -7,7 +7,7 @@ The code is split so that all decision logic lives in modules that never import 
 ### Main Process (main.ts)
 - Imports `appIdentity` first: it sets the app name and moves legacy user data before anything resolves `userData`
 - Handles Electron window lifecycle and the tray icon
-- Registers the global Quick Note hotkey, and draws the window with its own title bar (`titleBarOverlay`, colours from `windowTheme.ts`)
+- Registers the global shortcuts (Quick Notes, Record, Pause/Resume, Stop), and draws the window with its own title bar (`titleBarOverlay`, colours from `windowTheme.ts`)
 - Owns all IPC handlers
 - Starts the transcription server at launch and stops it on quit
 - Routes the hotkey, the tray item and the header button to `toggleQuickNote`; a refusal (a session is recording) is shown in the window, or as a notification when it is hidden
@@ -31,6 +31,7 @@ Electron-free (unit-tested):
 |--------|----------------|
 | `modelCatalog.ts` | Curated model list with pinned SHA256 hashes; custom URL parsing; GGML header check |
 | `modelManager.ts` | Download to `.part`, hash and format verification, cancel, list, delete, disk usage |
+| `shortcutRegistry.ts` | Registers the four global shortcuts through an injected `globalShortcut`; reports each as ok, none, taken (another app), duplicate or invalid |
 | `vadModel.ts` | Pinned Silero VAD model: hash check and install into the models folder |
 | `whisperServer.ts` | Supervisor state machine: `no-model`, `starting`, `ready`, `error`, `stopped` |
 | `serverOutput.ts` | Classifies server log lines; restart backoff; line ring buffer; tasklist parsing |
@@ -67,7 +68,6 @@ Electron-bound (verified by build, lint and running the app):
 | `settingsService.ts` | electron-store persistence |
 | `apiService.ts` | Transcription HTTP client (timeout differs per mode) |
 | `soxPath.ts` | Location of the bundled `sox.exe` |
-| `hotkeyService.ts` | `globalShortcut` registration |
 | `libraryRuntime.ts` | Library IPC, `fs.watch` with a 5 s polling fallback, Recycle Bin, open/reveal, vault picker |
 
 At startup, `main.ts` creates the default vault (`Documents\Dark-Whisper`, `settingsService.DEFAULT_VAULT_PATH`) with `fs.mkdirSync(..., { recursive: true })` if it's missing, before calling `watchVault()` — a fresh install always has a vault to write to. A missing **custom** vault (one the user chose) is never auto-created; the library shows "Vault not found" with a Choose folder button instead.
@@ -176,7 +176,10 @@ Server binaries (and `whisper-stream.exe`, the same way) are resolved in this or
 
 | Channel | Direction | Purpose |
 |---------|-----------|---------|
-| `get-settings`, `save-settings` | invoke | Settings (a theme change also recolours the title bar; a shortcut change re-registers it) |
+| `get-settings`, `save-settings` | invoke | Settings (a theme change also recolours the title bar; a shortcut change re-registers them all, and the reply carries each shortcut's result) |
+| `shortcut-status` | invoke | The last registration result per shortcut |
+| `shortcuts-suspend` | renderer → main | `true` while a Settings shortcut field records keys (global shortcuts would swallow them), `false` to register them again |
+| `selected-folder` | renderer → main | The sidebar's selected folder, where the Record shortcut starts a session |
 | `get-server-status` | invoke | Current status view (`state`, `mode`, `text`, …) |
 | `restart-server` | invoke | Re-run the start sequence |
 | `open-server-log` | invoke | Open `whisper-server.log` |
@@ -191,7 +194,7 @@ Server binaries (and `whisper-stream.exe`, the same way) are resolved in this or
 | `open-vault`, `reveal-document` | invoke | Open the vault folder / show the current document |
 | `session-status` | main → renderer | `{ state, documentPath, blockIndex, durationSec, refining, message, muted }` |
 | `session-segment` | main → renderer | `{ text, blockIndex }` for each live segment |
-| `error` | main → renderer | `{ message }` for failures outside a renderer call (the Quick Note shortcut) |
+| `error` | main → renderer | `{ message }` for failures outside a renderer call (a shortcut or the tray) |
 | `session-level` | main → renderer | Microphone level 0–1, at most every 100 ms |
 | `library-tree`, `library-search`, `document-read`, `document-rename`, `document-move`, `document-delete`, `folder-create`, `document-open-external`, `document-reveal`, `choose-vault`, `copy-text` | invoke | Library and clipboard |
 | `library-changed` | main → renderer | `{ paths }`, debounced 300 ms |
@@ -240,6 +243,8 @@ Automated tests cannot click the tray or press hotkeys, so before a release:
 - [ ] Edit a paragraph in another editor while recording → only that paragraph is skipped
 - [ ] Session: mute the microphone (Windows, hardware key, or the mic's own mute button) → paused; unmute → recording
 - [ ] A quick note is refused during a session and vice versa (the shortcut shows a notification when the window is hidden)
+- [ ] From another app: Ctrl+Alt+R starts a session in the selected folder, Ctrl+Alt+P pauses and resumes, Ctrl+Alt+S stops
+- [ ] Settings: press a new shortcut, save, and it works; a combination another app holds shows "In use by another app"
 - [ ] Kill `whisper-stream.exe` → a new paragraph starts and recording continues
 - [ ] Title bar: caption buttons follow the theme; Snap Layouts and double-click-to-maximize work
 - [ ] Session: a session longer than 30 minutes; a vault on another drive or a synced folder

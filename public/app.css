@@ -276,6 +276,12 @@ dialog input[type='text'], dialog input[type='password'], dialog input[type='num
 dialog .row-input { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
 dialog .row-input input { flex: 1; }
 dialog .hint { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+dialog .shortcut-grid { display: grid; grid-template-columns: max-content 170px 1fr; gap: 6px 12px; align-items: center; margin: 8px 0 4px; }
+dialog .shortcut-grid label { margin: 0; }
+dialog input.shortcut-input { cursor: pointer; text-align: center; caret-color: transparent; }
+dialog input.shortcut-input.capturing { border-color: var(--accent); color: var(--muted); }
+.shortcut-note { color: var(--muted); font-size: 12px; }
+.shortcut-note.warn { color: var(--danger); }
 dialog .actions { display: flex; flex-direction: row-reverse; gap: 8px; margin-top: 18px; }
 .dialog-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .model-list { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 14px; }

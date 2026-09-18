@@ -1,4 +1,14 @@
 import type { DownloadProgressView, ModelEntryView, ModelListView, RefineMode, SettingsView } from '../shared/api.js';
+import {
+  captureShortcut,
+  displayShortcut,
+  normalizeShortcut,
+  SHORTCUT_ACTIONS,
+  SHORTCUT_LABELS,
+  SHORTCUT_SETTINGS,
+  type ShortcutAction,
+  type ShortcutResult,
+} from '../shared/shortcuts.js';
 import { byId, el } from './dom.js';
 import { formatBytes } from './format.js';
 import { reportError, toast } from './toast.js';
@@ -66,7 +76,6 @@ let onSettingsSaved: (settings: SettingsView) => void = () => undefined;
 
 function settingsFields() {
   return {
-    shortcut: byId<HTMLInputElement>('shortcutInput'),
     builtin: byId<HTMLInputElement>('serverModeBuiltin'),
     external: byId<HTMLInputElement>('serverModeExternal'),
     forceCpu: byId<HTMLInputElement>('forceCpuInput'),
@@ -83,6 +92,84 @@ function settingsFields() {
     silenceGap: byId<HTMLInputElement>('silenceGapInput'),
     keepAudio: byId<HTMLInputElement>('keepAudioInput'),
   };
+}
+
+// ---- Shortcut fields: click one and press the keys.
+
+const SHORTCUT_FIELDS: Record<ShortcutAction, string> = {
+  quickNote: 'shortcutQuickNote',
+  record: 'shortcutRecord',
+  pause: 'shortcutPause',
+  stop: 'shortcutStop',
+};
+const RESULT_NOTES: Partial<Record<ShortcutResult, string>> = {
+  taken: 'In use by another app',
+  duplicate: 'Also set for another action',
+  invalid: 'Not a usable shortcut',
+};
+// The shortcut each field holds; a field shows "Press keys…" while it records.
+const shortcutValues = new Map<ShortcutAction, string>();
+
+function shortcutNote(action: ShortcutAction, text: string, warn: boolean): void {
+  const note = byId(`${SHORTCUT_FIELDS[action]}Note`);
+  note.textContent = text;
+  note.classList.toggle('warn', warn);
+}
+
+function showShortcuts(settings: SettingsView, status: Record<ShortcutAction, ShortcutResult>): void {
+  for (const action of SHORTCUT_ACTIONS) {
+    const value = settings[SHORTCUT_SETTINGS[action]];
+    shortcutValues.set(action, value);
+    byId<HTMLInputElement>(SHORTCUT_FIELDS[action]).value = displayShortcut(value);
+    const note = RESULT_NOTES[status[action]];
+    shortcutNote(action, note ?? '', note !== undefined);
+  }
+}
+
+function onShortcutKey(action: ShortcutAction, field: HTMLInputElement, event: KeyboardEvent): void {
+  if (event.key === 'Tab' && !event.ctrlKey && !event.altKey && !event.metaKey) return;
+  // Esc must not close the dialog, and no key may reach the form.
+  event.preventDefault();
+  event.stopPropagation();
+  const result = captureShortcut(event);
+  if (result.kind === 'wait') return;
+  if (result.kind === 'reject') {
+    shortcutNote(action, result.reason, true);
+    return;
+  }
+  if (result.kind === 'set') {
+    const other = SHORTCUT_ACTIONS.find(
+      (a) => a !== action && normalizeShortcut(shortcutValues.get(a) ?? '') === result.shortcut,
+    );
+    if (other) {
+      shortcutNote(action, `Already set for ${SHORTCUT_LABELS[other]}`, true);
+      return;
+    }
+    shortcutValues.set(action, result.shortcut);
+  } else if (result.kind === 'clear') {
+    shortcutValues.set(action, '');
+  }
+  shortcutNote(action, '', false);
+  field.value = displayShortcut(shortcutValues.get(action) ?? '');
+  field.blur();
+}
+
+function initShortcutFields(): void {
+  for (const action of SHORTCUT_ACTIONS) {
+    const field = byId<HTMLInputElement>(SHORTCUT_FIELDS[action]);
+    // The global shortcuts would swallow the keys being recorded, so they pause meanwhile.
+    field.addEventListener('focus', () => {
+      field.classList.add('capturing');
+      field.value = 'Press keys…';
+      window.api.suspendShortcuts(true);
+    });
+    field.addEventListener('blur', () => {
+      field.classList.remove('capturing');
+      field.value = displayShortcut(shortcutValues.get(action) ?? '');
+      window.api.suspendShortcuts(false);
+    });
+    field.addEventListener('keydown', (event) => onShortcutKey(action, field, event));
+  }
 }
 
 function syncServerMode(): void {
@@ -102,8 +189,8 @@ async function fillCaptureDevices(selected: string): Promise<void> {
 
 export async function openSettings(): Promise<void> {
   const f = settingsFields();
-  const settings = await window.api.getSettings();
-  f.shortcut.value = settings.shortcut;
+  const [settings, shortcutStatus] = await Promise.all([window.api.getSettings(), window.api.getShortcutStatus()]);
+  showShortcuts(settings, shortcutStatus);
   f.builtin.checked = settings.serverMode !== 'external';
   f.external.checked = settings.serverMode === 'external';
   f.forceCpu.checked = settings.forceCpu;
@@ -132,8 +219,11 @@ export async function openSettings(): Promise<void> {
 async function saveSettingsFromDialog(): Promise<void> {
   const f = settingsFields();
   try {
-    await window.api.saveSettings({
-      shortcut: f.shortcut.value.trim() || 'Ctrl+Q',
+    const shortcuts = Object.fromEntries(
+      SHORTCUT_ACTIONS.map((action) => [SHORTCUT_SETTINGS[action], shortcutValues.get(action) ?? '']),
+    );
+    const saved = await window.api.saveSettings({
+      ...shortcuts,
       serverMode: f.external.checked ? 'external' : 'builtin',
       forceCpu: f.forceCpu.checked,
       refineVad: f.refineVad.checked,
@@ -149,9 +239,16 @@ async function saveSettingsFromDialog(): Promise<void> {
       silenceGapSeconds: Math.max(1, Math.min(60, Math.round(Number(f.silenceGap.value) || 5))),
       keepSessionAudio: f.keepAudio.checked,
     });
+    const settings = await window.api.getSettings();
+    onSettingsSaved(settings);
+    // A shortcut another app holds stays visible: the dialog stays open with a note on it.
+    if (SHORTCUT_ACTIONS.some((action) => RESULT_NOTES[saved.shortcuts[action]])) {
+      showShortcuts(settings, saved.shortcuts);
+      toast('Settings saved, but some shortcuts could not be set.', 'error');
+      return;
+    }
     byId<HTMLDialogElement>('settingsDialog').close();
     toast('Settings saved.');
-    onSettingsSaved(await window.api.getSettings());
   } catch (error) {
     reportError(error);
   }
@@ -290,6 +387,8 @@ export function initDialogs(hooks: { onSettingsSaved(settings: SettingsView): vo
   byId('serverModeBuiltin').addEventListener('change', syncServerMode);
   byId('serverModeExternal').addEventListener('change', syncServerMode);
   byId('settingsSaveBtn').addEventListener('click', () => void saveSettingsFromDialog());
+  initShortcutFields();
+  byId('settingsDialog').addEventListener('close', () => window.api.suspendShortcuts(false));
   byId('chooseVaultBtn').addEventListener('click', async () => {
     try {
       const chosen = await window.api.chooseVault();

@@ -12,6 +12,7 @@ Transcription runs on a **built-in [whisper.cpp](https://github.com/ggml-org/whi
 - **Paragraph Refinement** - Each finished paragraph is re-transcribed with your main model and replaced in the file, unless you have edited it; silent paragraphs are skipped with Silero VAD, so Whisper's invented "Thank you." never lands in your notes
 - **Workspace** - Vault library with pinned Quick Notes, folder counts, recent documents and full-text search that jumps to the matching line; the document with its times in the margin; a details panel with each paragraph's refinement state
 - **Light and Dark Themes** - Switch from the header; the window draws its own title bar
+- **Keyboard Shortcuts** - Global shortcuts for Quick Notes (`Ctrl+Q`), Record (`Ctrl+Alt+R`), Pause/Resume (`Ctrl+Alt+P`) and Stop (`Ctrl+Alt+S`), all changeable in Settings
 - **Mic Mute as Pause** - Muting the microphone (in Windows, with a hardware key, or with the mute button on the mic itself) pauses recording
 - **Built-in Transcription Server** - Bundled whisper.cpp server, started and supervised by the app; no separate install
 - **Speech Model Manager** - Download SHA256-verified GGML models from Hugging Face, or paste your own model link
@@ -223,7 +224,7 @@ Downloads are verified against Hugging Face's SHA256 and checked for the GGML fo
    - **Skip silence when refining (VAD)** - Built-in only; removes paragraphs that contain no speech (default on)
    - **API Endpoint** - External only; URL where the Whisper API is running
    - **API Token** - External only; authentication token if your API requires one
-   - **Quick note shortcut** - Change the hotkey (e.g., `Alt+R`, `F9`, etc.); applies straight away
+   - **Shortcuts** - Global shortcuts for Quick Notes, Record / New Session, Pause / Resume and Stop. Click a box and press the keys (Esc cancels, Backspace clears to none). A shortcut needs Ctrl, Alt or Win unless it is an F-key; a box says so if another app already uses its keys
    - **Session microphone** - The microphone recordings use (the list fills in once a recording has started)
    - **Vault folder** - Where documents are written; pick it with **Choose folder…** (default `Documents\Dark-Whisper`, created automatically on first start if it doesn't exist yet). A custom folder you choose is never created for you — if it goes missing, the library shows "Vault not found" until you choose or recreate it.
    - **Live model** - The fast model for live text (default `ggml-base.en.bin`)
@@ -343,7 +344,8 @@ C:\Users\[YourUsername]\AppData\Roaming\Dark-Whisper\
 | `modelId` | model file name | The active speech model |
 | `forceCpu` | `true` / `false` | Skip the GPU build |
 | `gpuFallbackVersion` | version string or `null` | Set when a GPU start failed, so CPU is used next time |
-| `shortcut`, `apiUrl`, `apiToken` | | As shown in Settings |
+| `shortcut`, `recordShortcut`, `pauseShortcut`, `stopShortcut` | Electron accelerator, e.g. `Ctrl+Alt+R`; `""` for none | Quick Notes, Record, Pause/Resume and Stop; defaults `Ctrl+Q`, `Ctrl+Alt+R`, `Ctrl+Alt+P`, `Ctrl+Alt+S` |
+| `apiUrl`, `apiToken` | | As shown in Settings |
 | `vaultPath` | folder | Where documents go |
 | `liveModelId` | model file name | Fast model for live text; default `ggml-base.en.bin` |
 | `language` | language code | Default `en` |
@@ -379,14 +381,13 @@ curl -X POST http://127.0.0.1:4444/v1/audio/transcriptions \
 
 ## Troubleshooting
 
-### Hotkey Not Working
+### Shortcut Not Working
 
-- **Problem:** The shortcut doesn't start a quick note
+- **Problem:** A shortcut does nothing
 - **Solution:**
-  - Check for keyboard shortcut conflicts with other applications
-  - Verify the shortcut is set correctly in Settings
-  - Restart the application
-  - Ensure Windows allows the application permission to use global hotkeys
+  - Open Settings: a shortcut another app already uses says "In use by another app" next to it. Pick different keys
+  - Record does nothing while something is recording, and Pause and Stop do nothing when nothing is
+  - Some keyboard layouts type characters with Ctrl+Alt (AltGr); if a Ctrl+Alt shortcut gets in the way of typing, change it
 
 ### No Audio Recorded
 
@@ -488,12 +489,13 @@ Dark-Whisper/
 │   ├── main.ts                    # Electron main process, lifecycle, tray, IPC
 │   ├── preload.ts                 # Secure IPC bridge
 │   ├── shared/api.ts              # Types shared by main, preload and renderer
+│   ├── shared/shortcuts.ts        # Shortcut defaults and key rules (main and Settings)
 │   ├── renderer/                  # Window code (ES modules → public/js)
 │   │   ├── app.ts, state.ts       # Entry point and app state
 │   │   ├── header.ts, library.ts, document.ts, sessionPanel.ts, dialogs.ts, theme.ts, levelMeter.ts
 │   │   └── format.ts, libraryTree.ts, documentView.ts, sessionModel.ts, headerModel.ts   # DOM-free, tested
 │   ├── services/
-│   │   ├── hotkeyService.ts       # Global keyboard shortcut handling
+│   │   ├── shortcutRegistry.ts    # Registers the global shortcuts, reports conflicts
 │   │   ├── soxPath.ts             # Bundled SoX location
 │   │   ├── apiService.ts          # Transcription HTTP client
 │   │   ├── settingsService.ts     # Settings persistence (electron-store)
@@ -549,7 +551,7 @@ Dark-Whisper/
 └── README.md                      # This file
 ```
 
-The `services` layer is deliberately split: the `*Runtime.ts` modules (and the settings, SoX path and hotkey services) touch Electron; everything else is free of Electron imports, so it can be unit-tested directly.
+The `services` layer is deliberately split: the `*Runtime.ts` modules (and the settings and SoX path services) touch Electron; everything else is free of Electron imports, so it can be unit-tested directly.
 
 ### Technology Stack
 
@@ -689,6 +691,14 @@ When reporting a transcription problem, please include the status line text and,
 - Alternative external API: [whisper-api](https://github.com/dniasoff/whisper-api/)
 
 ## Changelog
+
+### Unreleased
+
+- Global shortcuts for Record (Ctrl+Alt+R), Pause/Resume (Ctrl+Alt+P) and Stop (Ctrl+Alt+S) next to Quick Notes (Ctrl+Q); set them in Settings by pressing the keys.
+- After unmuting, pauses start new paragraphs again straight away (the room's noise level was misjudged for 30 seconds).
+- Renaming a note to a name that differs only in letter case no longer adds "-2".
+- Large vaults no longer make the app stall while the library is scanned or searched.
+- A recording that is still refining keeps showing its paragraph states after the next one starts.
 
 ### Version 1.3.0 (Latest)
 
