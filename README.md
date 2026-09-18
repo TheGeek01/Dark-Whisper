@@ -692,7 +692,7 @@ When reporting a transcription problem, please include the status line text and,
 
 ## Changelog
 
-### Unreleased
+### Version 1.4.0 (Latest)
 
 - Global shortcuts for Record (Ctrl+Alt+R), Pause/Resume (Ctrl+Alt+P) and Stop (Ctrl+Alt+S) next to Quick Notes (Ctrl+Q); set them in Settings by pressing the keys.
 - After unmuting, pauses start new paragraphs again straight away (the room's noise level was misjudged for 30 seconds).
@@ -700,7 +700,7 @@ When reporting a transcription problem, please include the status line text and,
 - Large vaults no longer make the app stall while the library is scanned or searched.
 - A recording that is still refining keeps showing its paragraph states after the next one starts.
 
-### Version 1.3.0 (Latest)
+### Version 1.3.0
 
 - Quick notes: Ctrl+Q (or Quick Notes in the header) records into one file per day in the Quick Notes folder, with a date and time at the start of each note.
 - Recordings are split into paragraphs after 5 seconds of silence (adjustable), each with its time in the margin. Each paragraph is refined on its own.
