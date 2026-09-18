@@ -3,7 +3,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { DeadMicDetector, meterLevel, pcmLevelDb, pcmPeak, SilenceTracker } from './audioLevel';
+import { DeadMicDetector, isDeadPeak, meterLevel, pcmLevelDb, pcmPeak, SilenceTracker } from './audioLevel';
 import { PcmFileSink } from './pcmFileSink';
 import { getSoxPath } from './soxPath';
 import { BinaryLocations, resolveStreamBinary } from './serverPaths';
@@ -108,8 +108,9 @@ function spawnSoxSegment(session: SessionAudio): void {
   try {
     sink = new PcmFileSink(file, (startSec, durationSec, chunk) => {
       const db = pcmLevelDb(chunk);
-      session.silence.add(offsetSec + startSec, durationSec, db);
-      deadMic.add(durationSec, pcmPeak(chunk));
+      const peak = pcmPeak(chunk);
+      session.silence.add(offsetSec + startSec, durationSec, db, isDeadPeak(peak));
+      deadMic.add(durationSec, peak);
       emitLevel(db);
     });
   } catch (error) {

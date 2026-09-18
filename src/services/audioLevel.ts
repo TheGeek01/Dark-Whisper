@@ -39,6 +39,10 @@ export function pcmPeak(chunk: Buffer): number {
 const DEAD_PEAK = 4;
 const DEAD_AFTER_SEC = 1.5;
 
+export function isDeadPeak(peak: number): boolean {
+  return peak <= DEAD_PEAK;
+}
+
 export class DeadMicDetector {
   private deadSec = 0;
   private dead = false;
@@ -46,7 +50,7 @@ export class DeadMicDetector {
   constructor(private readonly onChange: (dead: boolean) => void) {}
 
   add(durationSec: number, peak: number): void {
-    if (peak > DEAD_PEAK) {
+    if (!isDeadPeak(peak)) {
       this.deadSec = 0;
       this.set(false);
       return;
@@ -82,20 +86,24 @@ interface LevelSample {
   endSec: number;
   speech: boolean;
   db: number;
+  dead: boolean;
 }
 
 export class SilenceTracker implements SplitFinder {
   private samples: LevelSample[] = [];
 
-  add(startSec: number, durationSec: number, db: number): void {
-    const threshold = Math.max(SPEECH_MIN_DB, this.noiseFloor(startSec, db) + SPEECH_ABOVE_FLOOR_DB);
-    this.samples.push({ startSec, endSec: startSec + durationSec, db, speech: db >= threshold });
+  // A dead chunk (a muted mic sending digital silence) is silence, but says nothing about the
+  // room: it is left out of the noise floor, which would otherwise sink to the level floor and
+  // count room noise as speech for FLOOR_WINDOW_SEC after the mic comes back.
+  add(startSec: number, durationSec: number, db: number, dead = false): void {
+    const speech = !dead && db >= Math.max(SPEECH_MIN_DB, this.noiseFloor(startSec, db) + SPEECH_ABOVE_FLOOR_DB);
+    this.samples.push({ startSec, endSec: startSec + durationSec, db, dead, speech });
     const cutoff = startSec - KEEP_SEC;
     while (this.samples.length > 0 && this.samples[0].endSec < cutoff) this.samples.shift();
   }
 
   private noiseFloor(atSec: number, current: number): number {
-    const recent = this.samples.filter((s) => s.startSec >= atSec - FLOOR_WINDOW_SEC).map((s) => s.db);
+    const recent = this.samples.filter((s) => !s.dead && s.startSec >= atSec - FLOOR_WINDOW_SEC).map((s) => s.db);
     recent.push(current);
     recent.sort((a, b) => a - b);
     return Math.min(recent[Math.floor((recent.length - 1) * FLOOR_PERCENTILE)], FLOOR_CAP_DB);

@@ -7,8 +7,8 @@ function pcm(values: number[]): Buffer {
 }
 
 // Feeds 0.25 s chunks of a constant level, as SoX delivers them.
-function feed(tracker: SilenceTracker, fromSec: number, toSec: number, db: number): void {
-  for (let t = fromSec; t < toSec - 1e-9; t += 0.25) tracker.add(t, 0.25, db);
+function feed(tracker: SilenceTracker, fromSec: number, toSec: number, db: number, dead = false): void {
+  for (let t = fromSec; t < toSec - 1e-9; t += 0.25) tracker.add(t, 0.25, db, dead);
 }
 
 describe('pcmLevelDb', () => {
@@ -67,6 +67,17 @@ describe('SilenceTracker', () => {
     feed(tracker, 2, 9, -60);
     feed(tracker, 9, 10, -20);
     expect(tracker.splitPoint(3, 10.2, 5)).toBe(5.5);
+  });
+
+  it('judges the room by its own noise, not by a muted stretch before it', () => {
+    const tracker = new SilenceTracker();
+    feed(tracker, 0, 30, -38);
+    feed(tracker, 30, 50, -60, true);
+    feed(tracker, 50, 52, -38);
+    feed(tracker, 52, 54, -20);
+    feed(tracker, 54, 62, -38);
+    feed(tracker, 62, 63, -20);
+    expect(tracker.splitPoint(54.5, 63.5, 5)).toBe(58);
   });
 
   it('treats steady background noise as silence', () => {
