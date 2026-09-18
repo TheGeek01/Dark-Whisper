@@ -344,7 +344,7 @@ ipcMain.handle('save-settings', async (_event, settings: any) => {
   if (before.forceCpu && !after.forceCpu) {
     saveSettings({ gpuFallbackVersion: null });
   }
-  if (before.serverMode !== after.serverMode || before.forceCpu !== after.forceCpu) {
+  if (before.serverMode !== after.serverMode || before.forceCpu !== after.forceCpu || before.refineVad !== after.refineVad) {
     await startBuiltinServer();
   }
   handleServerStatus();

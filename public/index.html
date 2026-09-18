@@ -113,6 +113,8 @@
       <label class="check"><input type="radio" name="serverMode" id="serverModeExternal" value="external"> External API</label>
       <div id="builtinOptions">
         <label class="check"><input type="checkbox" id="forceCpuInput"> Force CPU (use if GPU transcription fails)</label>
+        <label class="check"><input type="checkbox" id="refineVadInput"> Skip silence when refining (VAD)</label>
+        <p class="hint">Removes paragraphs that contain no speech.</p>
       </div>
       <div id="externalOptions">
         <label for="apiUrlInput">API endpoint</label>

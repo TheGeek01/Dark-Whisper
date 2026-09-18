@@ -9,6 +9,7 @@ import { ModelManager, axiosFetcher, statfsFreeSpace } from './modelManager';
 import { isWhisperServerImage, parseTasklistImage } from './serverOutput';
 import { BinaryLocations, resolveServerBinary, whisperResourceDir } from './serverPaths';
 import { getSettings, saveSettings } from './settingsService';
+import { installVadModel } from './vadModel';
 import { ServerProcess, WhisperServer } from './whisperServer';
 
 const execFileAsync = promisify(execFile);
@@ -140,11 +141,24 @@ export const whisperServer = new WhisperServer({
   now: Date.now,
 });
 
+const modelsDir = path.join(userData, 'models');
+
 export const modelManager = new ModelManager({
-  modelsDir: path.join(userData, 'models'),
+  modelsDir,
   fetcher: axiosFetcher,
   freeSpace: statfsFreeSpace,
 });
+
+// The bundled Silero model, verified and copied next to the speech models (spec §3, §4).
+function vadModelForServer(): string | null {
+  if (!getSettings().refineVad) return null;
+  const installed = installVadModel(path.join(whisperResourceDir(locations()), 'vad'), modelsDir);
+  if (installed.path === null) {
+    console.warn(`Refining without VAD: ${installed.reason}`);
+    return null;
+  }
+  return installed.path;
+}
 
 export async function startBuiltinServer(): Promise<void> {
   const settings = getSettings();
@@ -157,7 +171,7 @@ export async function startBuiltinServer(): Promise<void> {
     whisperServer.setNoModel();
     return;
   }
-  await whisperServer.start(settings.modelId, modelPath, { forceCpu: settings.forceCpu });
+  await whisperServer.start(settings.modelId, modelPath, { forceCpu: settings.forceCpu, vadModelPath: vadModelForServer() });
 }
 
 export function openServerLog(): Promise<string> {

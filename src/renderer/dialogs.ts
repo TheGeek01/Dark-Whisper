@@ -70,6 +70,7 @@ function settingsFields() {
     builtin: byId<HTMLInputElement>('serverModeBuiltin'),
     external: byId<HTMLInputElement>('serverModeExternal'),
     forceCpu: byId<HTMLInputElement>('forceCpuInput'),
+    refineVad: byId<HTMLInputElement>('refineVadInput'),
     apiUrl: byId<HTMLInputElement>('apiUrlInput'),
     apiToken: byId<HTMLInputElement>('apiTokenInput'),
     refineExternal: byId<HTMLInputElement>('refineExternalInput'),
@@ -106,6 +107,7 @@ export async function openSettings(): Promise<void> {
   f.builtin.checked = settings.serverMode !== 'external';
   f.external.checked = settings.serverMode === 'external';
   f.forceCpu.checked = settings.forceCpu;
+  f.refineVad.checked = settings.refineVad;
   f.apiUrl.value = settings.apiUrl;
   f.apiToken.value = settings.apiToken;
   f.refineExternal.checked = settings.refineWithExternalApi;
@@ -134,6 +136,7 @@ async function saveSettingsFromDialog(): Promise<void> {
       shortcut: f.shortcut.value.trim() || 'Ctrl+Q',
       serverMode: f.external.checked ? 'external' : 'builtin',
       forceCpu: f.forceCpu.checked,
+      refineVad: f.refineVad.checked,
       apiUrl: f.apiUrl.value.trim() || 'http://127.0.0.1:4444',
       apiToken: f.apiToken.value,
       refineWithExternalApi: f.refineExternal.checked,

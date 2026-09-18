@@ -19,6 +19,7 @@ export interface Settings {
   vaultPath: string;
   refineDuringRecording: RefineMode;
   refineWithExternalApi: boolean;
+  refineVad: boolean;
   blockMinutes: number;
   keepSessionAudio: boolean;
   silenceGapSeconds: number;
@@ -46,6 +47,7 @@ const store = new Store({
     vaultPath: defaultVaultPath,
     refineDuringRecording: 'auto',
     refineWithExternalApi: false,
+    refineVad: true,
     blockMinutes: 2,
     keepSessionAudio: false,
     silenceGapSeconds: DEFAULT_SILENCE_GAP_SECONDS,
@@ -74,6 +76,7 @@ export function getSettings(): Settings {
     vaultPath: storeAny.get('vaultPath', defaultVaultPath),
     refineDuringRecording: storeAny.get('refineDuringRecording', 'auto'),
     refineWithExternalApi: storeAny.get('refineWithExternalApi', false),
+    refineVad: storeAny.get('refineVad', true),
     blockMinutes: storeAny.get('blockMinutes', 2),
     keepSessionAudio: storeAny.get('keepSessionAudio', false),
     silenceGapSeconds: clampSilenceGap(storeAny.get('silenceGapSeconds', DEFAULT_SILENCE_GAP_SECONDS)),

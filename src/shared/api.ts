@@ -53,6 +53,7 @@ export interface SettingsView {
   vaultPath: string;
   refineDuringRecording: RefineMode;
   refineWithExternalApi: boolean;
+  refineVad: boolean;
   blockMinutes: number;
   keepSessionAudio: boolean;
   silenceGapSeconds: number;

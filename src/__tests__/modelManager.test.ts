@@ -53,6 +53,13 @@ describe('ModelManager', () => {
     expect(m.getModelPath('../evil.bin')).toBeNull();
   });
 
+  it('does not list the VAD model as a speech model', async () => {
+    const m = manager(fetcherFor(Buffer.alloc(0)));
+    await m.init();
+    fs.writeFileSync(path.join(dir, 'ggml-silero-v6.2.0.bin'), ggmlBytes(16));
+    expect(m.listModels().some((e) => e.id.includes('silero'))).toBe(false);
+  });
+
   it('lists catalog models with installed flags and custom models', async () => {
     const m = manager(fetcherFor(Buffer.alloc(0)));
     await m.init();
