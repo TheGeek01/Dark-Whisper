@@ -27,6 +27,7 @@
       <button class="btn ghost" id="pauseBtn" disabled><span class="i i-pause" id="pauseIcon" aria-hidden="true"></span><span id="pauseLabel">Pause</span></button>
     </div>
     <div class="spacer"></div>
+    <button class="btn outline update" id="updateBtn" title="Install the update and restart Dark-Whisper" hidden></button>
     <button class="icon" id="themeBtn" title="Switch theme"><span class="i i-moon" id="themeIcon" aria-hidden="true"></span></button>
     <button class="icon" id="settingsBtn" title="Settings"><span class="i i-gear" aria-hidden="true"></span></button>
     <div class="caption-space" aria-hidden="true"></div>
@@ -161,6 +162,14 @@
       <label for="silenceGapInput">Start a new paragraph after this many seconds of silence</label>
       <input type="number" id="silenceGapInput" min="1" max="60" step="1">
       <label class="check"><input type="checkbox" id="keepAudioInput"> Keep session audio after refinement</label>
+
+      <h3>Updates</h3>
+      <p class="hint" id="appVersionText"></p>
+      <label class="check"><input type="checkbox" id="autoUpdateInput"> Update automatically</label>
+      <div class="row-input">
+        <button type="button" class="btn" id="checkUpdatesBtn">Check for updates</button>
+        <span class="shortcut-note" id="updateStatusText"></span>
+      </div>
 
       <div class="actions">
         <button type="button" class="btn primary" id="settingsSaveBtn">Save</button>

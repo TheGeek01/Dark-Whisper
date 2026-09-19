@@ -1,4 +1,4 @@
-import type { ServerStatusView, SessionStatusView, SettingsView } from '../shared/api.js';
+import type { ServerStatusView, SessionStatusView, SettingsView, UpdateStatusView } from '../shared/api.js';
 
 export type HeaderTone = 'ok' | 'busy' | 'rec' | 'error' | 'idle' | 'external';
 
@@ -34,4 +34,29 @@ export function headerStatus(
   if (server.state === 'error') return { text: server.text, tone: 'error' };
   if (server.state === 'starting') return { text: server.text, tone: 'busy' };
   return { text: server.text, tone: 'idle' };
+}
+
+// The line under Check for updates in Settings.
+export function updateStatusText(status: UpdateStatusView): string {
+  switch (status.state) {
+    case 'unsupported':
+      return 'Updates work in the installed app only';
+    case 'idle':
+      return '';
+    case 'checking':
+      return 'Checking…';
+    case 'up-to-date':
+      return 'Up to date';
+    case 'downloading':
+      return `Downloading ${status.version ?? 'the update'}… ${status.percent ?? 0}%`;
+    case 'ready':
+      return `${status.version ?? 'The update'} is ready: restart to install it`;
+    case 'error':
+      return `Could not update: ${status.message ?? 'unknown error'}`;
+  }
+}
+
+// The header offers the restart only once an update has downloaded.
+export function updateButtonText(status: UpdateStatusView | null): string | null {
+  return status?.state === 'ready' ? `Update ${status.version ?? ''} — Restart` : null;
 }

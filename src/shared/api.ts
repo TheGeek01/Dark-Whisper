@@ -65,6 +65,7 @@ export interface SettingsView {
   silenceGapSeconds: number;
   theme: ThemeName;
   captureDeviceName: string;
+  autoUpdate: boolean;
 }
 
 export interface CaptureDeviceView {
@@ -157,6 +158,15 @@ export interface LibraryChange {
   paths: string[];
 }
 
+// Updates from GitHub releases (updateService.ts). 'unsupported' in a development run.
+export interface UpdateStatusView {
+  state: 'unsupported' | 'idle' | 'checking' | 'up-to-date' | 'downloading' | 'ready' | 'error';
+  currentVersion: string;
+  version?: string; // the new version, while downloading or ready
+  percent?: number; // while downloading
+  message?: string; // on error
+}
+
 export interface DarkWhisperApi {
   // Errors raised outside a renderer call (e.g. the Quick Note shortcut)
   onError(callback: (data: { message: string }) => void): void;
@@ -208,4 +218,9 @@ export interface DarkWhisperApi {
   revealLibraryDocument(file: string): Promise<void>;
   chooseVault(): Promise<string | null>;
   onLibraryChanged(callback: (change: LibraryChange) => void): void;
+  // Updates
+  getUpdateStatus(): Promise<UpdateStatusView>;
+  checkForUpdates(): Promise<UpdateStatusView>;
+  installUpdate(): Promise<void>;
+  onUpdateStatus(callback: (status: UpdateStatusView) => void): void;
 }

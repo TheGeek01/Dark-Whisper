@@ -21,6 +21,7 @@ Transcription runs on a **built-in [whisper.cpp](https://github.com/ggml-org/whi
 - **External API Support** - Point at OpenAI's Whisper API or a self-hosted server instead
 - **System Tray Integration** - Runs from the system tray with recording and server status
 - **Auto-Start on Login** - Launches minimized at Windows startup
+- **Automatic Updates** - New releases download in the background; restart from the header or tray to install (never during a recording)
 
 ## System Requirements
 
@@ -224,6 +225,7 @@ Downloads are verified against Hugging Face's SHA256 and checked for the GGML fo
    - **Skip silence when refining (VAD)** - Built-in only; removes paragraphs that contain no speech (default on)
    - **API Endpoint** - External only; URL where the Whisper API is running
    - **API Token** - External only; authentication token if your API requires one
+   - **Update automatically** - Check for a new release at start-up and every 6 hours (default on). **Check for updates** checks now either way; a found update downloads in the background and installs when you restart from the header or tray, or on the next quit
    - **Shortcuts** - Global shortcuts for Quick Notes, Record / New Session, Pause / Resume and Stop. Click a box and press the keys (Esc cancels, Backspace clears to none). A shortcut needs Ctrl, Alt or Win unless it is an F-key; a box says so if another app already uses its keys
    - **Session microphone** - The microphone recordings use (the list fills in once a recording has started)
    - **Vault folder** - Where documents are written; pick it with **Choose folder…** (default `Documents\Dark-Whisper`, created automatically on first start if it doesn't exist yet). A custom folder you choose is never created for you — if it goes missing, the library shows "Vault not found" until you choose or recreate it.
@@ -355,6 +357,7 @@ C:\Users\[YourUsername]\AppData\Roaming\Dark-Whisper\
 | `blockMinutes` | 1-30 | Default `2` |
 | `silenceGapSeconds` | 1-60 | Seconds of silence that start a new paragraph; default `5` |
 | `theme` | `dark` / `light` | Default `dark` |
+| `autoUpdate` | `true` / `false` | Check for updates at start-up and every 6 hours; default `true` |
 | `keepSessionAudio` | `true` / `false` | Default `false` |
 | `captureDeviceName` | device name | Empty means the system default |
 
@@ -496,6 +499,8 @@ Dark-Whisper/
 │   │   └── format.ts, libraryTree.ts, documentView.ts, sessionModel.ts, headerModel.ts   # DOM-free, tested
 │   ├── services/
 │   │   ├── shortcutRegistry.ts    # Registers the global shortcuts, reports conflicts
+│   │   ├── updateService.ts       # Update checks, download state, restart rules
+│   │   ├── updateRuntime.ts       # electron-updater wiring for the above
 │   │   ├── soxPath.ts             # Bundled SoX location
 │   │   ├── apiService.ts          # Transcription HTTP client
 │   │   ├── settingsService.ts     # Settings persistence (electron-store)
@@ -571,7 +576,7 @@ The `services` layer is deliberately split: the `*Runtime.ts` modules (and the s
 
 1. **Lint** and **Test** on Ubuntu.
 2. **Build whisper.cpp server** on Windows: installs the pinned Vulkan SDK and SDL2, compiles `whisper-server` and `whisper-stream` twice (CPU and Vulkan) from the tag in `whisper.version`, transcribes a sample clip as a smoke test, fetches and checks the pinned Silero VAD model, checks that the VAD server returns nothing for silence, and uploads the binaries as an artifact. Results are cached per whisper.cpp, SDK and SDL2 version.
-3. **Build and Release**: downloads that artifact into `resources/whisper/`, builds the NSIS installer, and publishes a GitHub Release.
+3. **Build and Release**: downloads that artifact into `resources/whisper/`, builds the NSIS installer, and publishes a GitHub Release with the installer, its `.blockmap` and `latest.yml`. Installed apps update from `latest.yml` of the newest published (not draft) release, so keep those three assets on every release.
 
 To cut a release: `git tag v1.2.0 && git push origin v1.2.0`.
 
@@ -638,7 +643,6 @@ Potential features for future releases:
 - [ ] Batch transcription
 - [ ] macOS and Linux support
 - [ ] Model choice per language
-- [ ] Auto-update (electron-updater)
 
 ## Contributing
 
@@ -692,6 +696,7 @@ When reporting a transcription problem, please include the status line text and,
 
 ### Unreleased
 
+- Automatic updates: the app checks GitHub at start-up and every 6 hours, downloads a new version in the background, and offers **Update … — Restart** in the header and tray. Settings has **Update automatically** and **Check for updates**.
 - Pause mutes the microphone the recording uses (Settings → Session microphone), not the Windows default one.
 - The tray menu has Record, Pause/Resume and Stop, with their shortcuts.
 

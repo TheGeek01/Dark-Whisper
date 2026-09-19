@@ -29,6 +29,7 @@ import { onAudioLevel } from './services/streamRuntime';
 import { parseStartRequest } from './services/quickNotes';
 import { titleBarOverlay, windowBackground } from './services/windowTheme';
 import { onLibraryChanged, registerLibraryIpc, stopWatching, watchVault } from './services/libraryRuntime';
+import { updates } from './services/updateRuntime';
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -290,6 +291,9 @@ const buildTrayMenu = () =>
       click: () => shortcutHandlers[action](),
     })),
     { type: 'separator' },
+    ...(updates.getStatus().state === 'ready'
+      ? [{ label: `Restart to update to ${updates.getStatus().version}`, click: () => void runAction(async () => updates.install()) }, { type: 'separator' as const }]
+      : []),
     {
       label: 'Models…',
       click: showModelsWindow,
@@ -347,6 +351,11 @@ app.on('ready', () => {
     trayState = next;
   });
   onSessionSegment((segment) => mainWindow?.webContents.send('session-segment', segment));
+  updates.onChange((status) => {
+    mainWindow?.webContents.send('update-status', status);
+    tray?.setContextMenu(buildTrayMenu());
+  });
+  updates.start();
   onSessionBlock((event) => mainWindow?.webContents.send('session-block', event));
   onAudioLevel((level) => mainWindow?.webContents.send('session-level', level));
   // A fresh install has no vault yet; only ever auto-create the default one, never a custom
@@ -393,6 +402,7 @@ app.on('before-quit', () => {
   modelManager.cancelDownload();
   whisperServer.stop();
   stopWatching();
+  updates.stop();
 });
 
 ipcMain.handle('get-settings', () => {
@@ -433,6 +443,10 @@ ipcMain.handle('save-settings', async (_event, settings: Partial<Settings>) => {
 });
 
 ipcMain.handle('shortcut-status', () => shortcutStatus);
+
+ipcMain.handle('update-status', () => updates.getStatus());
+ipcMain.handle('update-check', () => updates.checkNow());
+ipcMain.handle('update-install', () => updates.install());
 
 ipcMain.on('shortcuts-suspend', (_event, suspended: unknown) => {
   if (suspended === true) globalShortcut.unregisterAll();

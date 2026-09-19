@@ -1,4 +1,5 @@
-import type { DownloadProgressView, ModelEntryView, ModelListView, RefineMode, SettingsView } from '../shared/api.js';
+import type { DownloadProgressView, ModelEntryView, ModelListView, RefineMode, SettingsView, UpdateStatusView } from '../shared/api.js';
+import { updateStatusText } from './headerModel.js';
 import {
   captureShortcut,
   displayShortcut,
@@ -91,6 +92,7 @@ function settingsFields() {
     refineMode: byId<HTMLSelectElement>('refineModeInput'),
     silenceGap: byId<HTMLInputElement>('silenceGapInput'),
     keepAudio: byId<HTMLInputElement>('keepAudioInput'),
+    autoUpdate: byId<HTMLInputElement>('autoUpdateInput'),
   };
 }
 
@@ -172,6 +174,15 @@ function initShortcutFields(): void {
   }
 }
 
+function showUpdateStatus(status: UpdateStatusView): void {
+  byId('appVersionText').textContent = `Dark-Whisper ${status.currentVersion}`;
+  const text = byId('updateStatusText');
+  text.textContent = updateStatusText(status);
+  text.classList.toggle('warn', status.state === 'error');
+  const busy = status.state === 'checking' || status.state === 'downloading' || status.state === 'ready';
+  byId<HTMLButtonElement>('checkUpdatesBtn').disabled = busy || status.state === 'unsupported';
+}
+
 function syncServerMode(): void {
   const external = byId<HTMLInputElement>('serverModeExternal').checked;
   byId('externalOptions').hidden = !external;
@@ -205,6 +216,8 @@ export async function openSettings(): Promise<void> {
   f.refineMode.value = settings.refineDuringRecording;
   f.silenceGap.value = String(settings.silenceGapSeconds);
   f.keepAudio.checked = settings.keepSessionAudio;
+  f.autoUpdate.checked = settings.autoUpdate;
+  window.api.getUpdateStatus().then(showUpdateStatus, reportError);
   syncServerMode();
   byId<HTMLDialogElement>('settingsDialog').showModal();
   const saveBtn = byId<HTMLButtonElement>('settingsSaveBtn');
@@ -238,6 +251,7 @@ async function saveSettingsFromDialog(): Promise<void> {
       refineDuringRecording: f.refineMode.value as RefineMode,
       silenceGapSeconds: Math.max(1, Math.min(60, Math.round(Number(f.silenceGap.value) || 5))),
       keepSessionAudio: f.keepAudio.checked,
+      autoUpdate: f.autoUpdate.checked,
     });
     const settings = await window.api.getSettings();
     onSettingsSaved(settings);
@@ -388,6 +402,10 @@ export function initDialogs(hooks: { onSettingsSaved(settings: SettingsView): vo
   byId('serverModeExternal').addEventListener('change', syncServerMode);
   byId('settingsSaveBtn').addEventListener('click', () => void saveSettingsFromDialog());
   initShortcutFields();
+  window.api.onUpdateStatus(showUpdateStatus);
+  byId('checkUpdatesBtn').addEventListener('click', () => {
+    window.api.checkForUpdates().then(showUpdateStatus, reportError);
+  });
   byId('settingsDialog').addEventListener('close', () => window.api.suspendShortcuts(false));
   byId('chooseVaultBtn').addEventListener('click', async () => {
     try {

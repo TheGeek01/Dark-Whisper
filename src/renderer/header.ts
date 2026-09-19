@@ -1,8 +1,8 @@
-import type { ServerStatusView, SettingsView } from '../shared/api.js';
+import type { ServerStatusView, SettingsView, UpdateStatusView } from '../shared/api.js';
 import { displayShortcut } from '../shared/shortcuts.js';
 import { openModels, openSettings, startModelDownload } from './dialogs.js';
 import { byId } from './dom.js';
-import { headerStatus, modelChipText } from './headerModel.js';
+import { headerStatus, modelChipText, updateButtonText } from './headerModel.js';
 import { isSessionRunning } from './sessionModel.js';
 import { getState, subscribe } from './state.js';
 import { reportError, toast } from './toast.js';
@@ -10,6 +10,7 @@ import { reportError, toast } from './toast.js';
 const RECOMMENDED_MODEL_ID = 'ggml-large-v3-turbo-q5_0.bin';
 
 let server: ServerStatusView | null = null;
+let update: UpdateStatusView | null = null;
 let settings: SettingsView | null = null;
 
 function render(): void {
@@ -52,6 +53,11 @@ function render(): void {
   stop.title = `Stop${keys(settings?.stopShortcut)}`;
 
   byId('modelChipText').textContent = settings ? modelChipText(settings) : '…';
+
+  const updateText = updateButtonText(update);
+  const updateBtn = byId<HTMLButtonElement>('updateBtn');
+  updateBtn.hidden = updateText === null;
+  updateBtn.textContent = updateText ?? '';
 }
 
 // " (Ctrl+Alt+P)" for a button's tooltip, or nothing when the action has no shortcut.
@@ -69,6 +75,15 @@ function refreshSettings(): void {
 }
 
 export function initHeader(): void {
+  window.api.onUpdateStatus((status) => {
+    update = status;
+    render();
+  });
+  window.api.getUpdateStatus().then((status) => {
+    update = status;
+    render();
+  }, reportError);
+  byId('updateBtn').addEventListener('click', () => window.api.installUpdate().catch(reportError));
   window.api.onServerStatus((view) => {
     server = view;
     // A model change restarts the server: the chip follows.

@@ -31,6 +31,7 @@ Electron-free (unit-tested):
 |--------|----------------|
 | `modelCatalog.ts` | Curated model list with pinned SHA256 hashes; custom URL parsing; GGML header check |
 | `modelManager.ts` | Download to `.part`, hash and format verification, cancel, list, delete, disk usage |
+| `updateService.ts` | Update state machine: first check 10 s after start, then every 6 h (only with `autoUpdate`); manual checks always; install refused unless ready and not recording |
 | `shortcutRegistry.ts` | Registers the four global shortcuts through an injected `globalShortcut`; reports each as ok, none, taken (another app), duplicate or invalid |
 | `vadModel.ts` | Pinned Silero VAD model: hash check and install into the models folder |
 | `whisperServer.ts` | Supervisor state machine: `no-model`, `starting`, `ready`, `error`, `stopped` |
@@ -68,6 +69,7 @@ Electron-bound (verified by build, lint and running the app):
 | `settingsService.ts` | electron-store persistence |
 | `apiService.ts` | Transcription HTTP client (timeout differs per mode) |
 | `soxPath.ts` | Location of the bundled `sox.exe` |
+| `updateRuntime.ts` | `electron-updater` (`autoDownload`, `autoInstallOnAppQuit`) wired to `updateService`; `quitAndInstall(true, true)` on Restart |
 | `libraryRuntime.ts` | Library IPC, `fs.watch` with a 5 s polling fallback, Recycle Bin, open/reveal, vault picker |
 
 At startup, `main.ts` creates the default vault (`Documents\Dark-Whisper`, `settingsService.DEFAULT_VAULT_PATH`) with `fs.mkdirSync(..., { recursive: true })` if it's missing, before calling `watchVault()` — a fresh install always has a vault to write to. A missing **custom** vault (one the user chose) is never auto-created; the library shows "Vault not found" with a Choose folder button instead.
@@ -178,6 +180,8 @@ Server binaries (and `whisper-stream.exe`, the same way) are resolved in this or
 |---------|-----------|---------|
 | `get-settings`, `save-settings` | invoke | Settings (a theme change also recolours the title bar; a shortcut change re-registers them all, and the reply carries each shortcut's result) |
 | `shortcut-status` | invoke | The last registration result per shortcut |
+| `update-status`, `update-check`, `update-install` | invoke | Update status, check now, install the downloaded update and restart |
+| `update-status` | main → renderer | Update state changed |
 | `shortcuts-suspend` | renderer → main | `true` while a Settings shortcut field records keys (global shortcuts would swallow them), `false` to register them again |
 | `selected-folder` | renderer → main | The sidebar's selected folder, where the Record shortcut starts a session |
 | `get-server-status` | invoke | Current status view (`state`, `mode`, `text`, …) |
@@ -246,6 +250,7 @@ Automated tests cannot click the tray or press hotkeys, so before a release:
 - [ ] From another app: Ctrl+Alt+R starts a session in the selected folder, Ctrl+Alt+P pauses and resumes, Ctrl+Alt+S stops
 - [ ] Settings: press a new shortcut, save, and it works; a combination another app holds shows "In use by another app"
 - [ ] Tray menu: Record, Pause/Resume and Stop show their shortcuts and grey out like the header buttons
+- [ ] Updates: an installed older version finds the latest release, downloads it, shows **Update … — Restart**; Restart during a recording is refused; Restart otherwise installs and relaunches
 - [ ] Kill `whisper-stream.exe` → a new paragraph starts and recording continues
 - [ ] Title bar: caption buttons follow the theme; Snap Layouts and double-click-to-maximize work
 - [ ] Session: a session longer than 30 minutes; a vault on another drive or a synced folder

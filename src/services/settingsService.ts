@@ -29,6 +29,7 @@ export interface Settings {
   silenceGapSeconds: number;
   theme: ThemeName;
   captureDeviceName: string;
+  autoUpdate: boolean;
 }
 
 export const DEFAULT_VAULT_PATH = path.join(app.getPath('documents'), 'Dark-Whisper');
@@ -60,6 +61,7 @@ const store = new Store({
     silenceGapSeconds: DEFAULT_SILENCE_GAP_SECONDS,
     theme: 'dark',
     captureDeviceName: '',
+    autoUpdate: true,
   },
 }) as unknown as Store<Settings>;
 
@@ -97,6 +99,7 @@ export function getSettings(): Settings {
     silenceGapSeconds: clampSilenceGap(storeAny.get('silenceGapSeconds', DEFAULT_SILENCE_GAP_SECONDS)),
     theme: normalizeTheme(storeAny.get('theme', 'dark')),
     captureDeviceName: storeAny.get('captureDeviceName', ''),
+    autoUpdate: storeAny.get('autoUpdate', true),
   };
 }
 

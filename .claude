@@ -78,7 +78,7 @@ States: `no-model` | `starting` | `ready` | `error` | `stopped`.
 - Download to `<file>.part`, verify SHA256 + GGML magic (`readUInt32LE(0) === 0x67676d6c`), then rename. One download at a time; progress throttled to 250 ms; stray `.part` files swept at startup.
 
 ## Settings (electron-store, config.json)
-`serverMode` (`builtin`/`external`), `modelId`, `forceCpu`, `gpuFallbackVersion`, `shortcut` / `recordShortcut` / `pauseShortcut` / `stopShortcut` (`""` = none), `apiUrl`, `apiToken`, `vaultPath`, `liveModelId`, `language`, `refineDuringRecording` (`auto`/`always`/`afterStop`), `refineWithExternalApi`, `refineVad` (default true), `blockMinutes`, `keepSessionAudio`, `silenceGapSeconds` (1–60, default 5), `theme` (`dark`/`light`), `captureDeviceName`.
+`serverMode` (`builtin`/`external`), `modelId`, `forceCpu`, `gpuFallbackVersion`, `shortcut` / `recordShortcut` / `pauseShortcut` / `stopShortcut` (`""` = none), `apiUrl`, `apiToken`, `vaultPath`, `liveModelId`, `language`, `refineDuringRecording` (`auto`/`always`/`afterStop`), `refineWithExternalApi`, `refineVad` (default true), `blockMinutes`, `keepSessionAudio`, `silenceGapSeconds` (1–60, default 5), `theme` (`dark`/`light`), `captureDeviceName`, `autoUpdate` (default true).
 Migration: if `serverMode` is absent and `config.json` already existed → `external` (upgrades keep working); fresh installs → `builtin`. `serverMode` is deliberately NOT in electron-store defaults, or the migration check would never fire.
 
 ## Data Locations (`%APPDATA%\Dark-Whisper\`)
