@@ -9,7 +9,7 @@ import { DocumentStore, Frontmatter } from './documentStore';
 import type { GuardedStore } from './guardedStore';
 import { GuardRegistry } from './guardRegistry';
 import { MicMuteService } from './micMuteService';
-import { buildShimArgs, parseMuteOutput } from './micMuteOutput';
+import { buildShimArgs, parseMuteOutput, shimEnv } from './micMuteOutput';
 import { SilenceTracker } from './audioLevel';
 import { RefineJob, SessionService } from './sessionService';
 import { prepareQuickNote, startRefusal } from './quickNotes';
@@ -60,6 +60,8 @@ interface SessionContext {
   pausedByApp: boolean;
   outsideEditNoticed: boolean;
   microphone: string;
+  // The capture device the recording uses ('' = the Windows default); Pause mutes this one.
+  micDevice: string;
   liveModel: string;
   refineModel: string;
   // Set once the recorder starts; each run keeps its own, so an older run can still be refined.
@@ -82,10 +84,13 @@ let lastDevices: CaptureDevice[] = [];
 // The session mic is sending digital silence (muted at the device); see onDeadMic.
 let micDead = false;
 
+// Mute and its polling act on the recording's own microphone, not the Windows default one.
+const micEnv = () => ({ windowsHide: true, env: shimEnv(current?.micDevice ?? '') });
+
 const micMute = new MicMuteService({
   readMute: () =>
     new Promise((resolve) => {
-      const child = spawn('powershell', buildShimArgs('get'), { windowsHide: true });
+      const child = spawn('powershell', buildShimArgs('get'), micEnv());
       let out = '';
       child.stdout.on('data', (c) => (out += String(c)));
       child.on('error', () => resolve(null));
@@ -93,7 +98,7 @@ const micMute = new MicMuteService({
     }),
   writeMute: (muted) =>
     new Promise((resolve) => {
-      const child = spawn('powershell', buildShimArgs(muted ? 'mute' : 'unmute'), { windowsHide: true });
+      const child = spawn('powershell', buildShimArgs(muted ? 'mute' : 'unmute'), micEnv());
       child.on('error', () => resolve());
       child.on('close', () => resolve());
     }),
@@ -490,6 +495,7 @@ export async function startSession(request: SessionStartRequest): Promise<Sessio
     pausedByApp: false,
     outsideEditNoticed: false,
     microphone: device?.name ?? 'System default',
+    micDevice: device?.name ?? '',
     liveModel: settings.liveModelId,
     refineModel: settings.serverMode === 'external' ? 'External API' : settings.modelId ?? 'none',
     audio: null,

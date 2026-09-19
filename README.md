@@ -625,7 +625,6 @@ To view debug output and logs:
 - **Windows Only:** Currently supports Windows 10 and later (x64) only
 - **One Server at a Time:** Either the built-in server or a single external endpoint
 - **One Recording at a Time:** A quick note is refused while a session records, and the other way round
-- **Mute Pause Uses the Default Microphone:** pausing mutes the Windows default capture device, even if a recording uses another microphone
 - **Audio Quality:** Dependent on microphone and system audio capture
 - **Internet Required:** For model downloads, and when using OpenAI's hosted service
 - **GPU Support:** Vulkan only; there is no CUDA-specific build
@@ -690,6 +689,11 @@ When reporting a transcription problem, please include the status line text and,
 - Alternative external API: [whisper-api](https://github.com/dniasoff/whisper-api/)
 
 ## Changelog
+
+### Unreleased
+
+- Pause mutes the microphone the recording uses (Settings → Session microphone), not the Windows default one.
+- The tray menu has Record, Pause/Resume and Stop, with their shortcuts.
 
 ### Version 1.4.0 (Latest)
 

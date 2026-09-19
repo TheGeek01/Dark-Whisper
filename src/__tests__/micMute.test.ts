@@ -1,4 +1,4 @@
-import { parseMuteOutput, buildShimArgs, MUTE_SHIM_SCRIPT } from '../services/micMuteOutput';
+import { parseMuteOutput, buildShimArgs, MUTE_SHIM_SCRIPT, shimEnv, MIC_NAME_ENV } from '../services/micMuteOutput';
 import { MicMuteService } from '../services/micMuteService';
 
 describe('parseMuteOutput', () => {
@@ -22,6 +22,27 @@ describe('buildShimArgs', () => {
     expect(args).toContain('-Command');
     expect(args[args.length - 1]).toContain('get');
     expect(MUTE_SHIM_SCRIPT).toContain('IAudioEndpointVolume');
+  });
+});
+
+describe('shimEnv', () => {
+  // Pause mutes the session's own microphone, not whichever one Windows calls the default.
+  it('names the session microphone in the environment, never in the command', () => {
+    const name = "Microphone (Bob's \"USB\" Mic)";
+    const env = shimEnv(name, { PATH: 'x' });
+    expect(env[MIC_NAME_ENV]).toBe(name);
+    expect(env.PATH).toBe('x');
+    expect(buildShimArgs('mute').join(' ')).not.toContain('Bob');
+  });
+
+  it('leaves the name empty for the system default', () => {
+    expect(shimEnv('', {})[MIC_NAME_ENV]).toBe('');
+  });
+
+  it('finds the named device among the active capture endpoints, falling back to the default', () => {
+    expect(MUTE_SHIM_SCRIPT).toContain('EnumAudioEndpoints');
+    expect(MUTE_SHIM_SCRIPT).toContain(`$env:${MIC_NAME_ENV}`);
+    expect(MUTE_SHIM_SCRIPT).toContain('GetDefaultAudioEndpoint');
   });
 });
 
