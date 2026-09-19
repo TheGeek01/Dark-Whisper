@@ -694,13 +694,13 @@ When reporting a transcription problem, please include the status line text and,
 
 ## Changelog
 
-### Unreleased
+### Version 1.5.0 (Latest)
 
 - Automatic updates: the app checks GitHub at start-up and every 6 hours, downloads a new version in the background, and offers **Update … — Restart** in the header and tray. Settings has **Update automatically** and **Check for updates**.
 - Pause mutes the microphone the recording uses (Settings → Session microphone), not the Windows default one.
 - The tray menu has Record, Pause/Resume and Stop, with their shortcuts.
 
-### Version 1.4.0 (Latest)
+### Version 1.4.0
 
 - Global shortcuts for Record (Ctrl+Alt+R), Pause/Resume (Ctrl+Alt+P) and Stop (Ctrl+Alt+S) next to Quick Notes (Ctrl+Q); set them in Settings by pressing the keys.
 - After unmuting, pauses start new paragraphs again straight away (the room's noise level was misjudged for 30 seconds).

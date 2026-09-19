@@ -1,6 +1,6 @@
 {
   "name": "dark-whisper",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Desktop application for recording audio and transcribing with OpenAI's Whisper API",
   "main": "dist/main.js",
   "scripts": {
