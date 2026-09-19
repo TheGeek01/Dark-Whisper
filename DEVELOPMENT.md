@@ -245,6 +245,7 @@ Automated tests cannot click the tray or press hotkeys, so before a release:
 - [ ] A quick note is refused during a session and vice versa (the shortcut shows a notification when the window is hidden)
 - [ ] From another app: Ctrl+Alt+R starts a session in the selected folder, Ctrl+Alt+P pauses and resumes, Ctrl+Alt+S stops
 - [ ] Settings: press a new shortcut, save, and it works; a combination another app holds shows "In use by another app"
+- [ ] Tray menu: Record, Pause/Resume and Stop show their shortcuts and grey out like the header buttons
 - [ ] Kill `whisper-stream.exe` → a new paragraph starts and recording continues
 - [ ] Title bar: caption buttons follow the theme; Snap Layouts and double-click-to-maximize work
 - [ ] Session: a session longer than 30 minutes; a vault on another drive or a synced folder

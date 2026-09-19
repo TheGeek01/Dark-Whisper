@@ -63,7 +63,12 @@ const store = new Store({
   },
 }) as unknown as Store<Settings>;
 
-const storeAny = store as any;
+// electron-store's own typings do not fit its runtime API here; this is the part the app uses.
+const storeAny = store as unknown as {
+  get<K extends keyof Settings>(key: K, defaultValue: Settings[K]): Settings[K];
+  set(key: string, value: unknown): void;
+  has(key: string): boolean;
+};
 
 if (!storeAny.has('serverMode')) {
   storeAny.set('serverMode', initialServerMode(configFileExisted));

@@ -17,7 +17,7 @@ class WhisperAPI {
   }
 
   private updateClient() {
-    const headers: any = { 'User-Agent': 'whisper-desktop' };
+    const headers: Record<string, string> = { 'User-Agent': 'whisper-desktop' };
     if (this.apiToken) {
       headers['Authorization'] = `Bearer ${this.apiToken}`;
     }

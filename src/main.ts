@@ -1,11 +1,11 @@
 import './appIdentity';
-import { app, BrowserWindow, clipboard, globalShortcut, Menu, Tray, ipcMain, Notification, shell } from 'electron';
+import { app, BrowserWindow, clipboard, globalShortcut, Menu, nativeImage, Tray, ipcMain, Notification, shell } from 'electron';
 import path from 'path';
 import * as fs from 'fs';
 import { registerShortcuts } from './services/shortcutRegistry';
-import { displayShortcut, SHORTCUT_ACTIONS, SHORTCUT_SETTINGS, ShortcutAction, ShortcutResult } from './shared/shortcuts';
+import { SHORTCUT_ACTIONS, SHORTCUT_SETTINGS, ShortcutAction, ShortcutResult } from './shared/shortcuts';
 import { setApiConfig, BUILTIN_TIMEOUT_MS, EXTERNAL_TIMEOUT_MS } from './services/apiService';
-import { DEFAULT_VAULT_PATH, getSettings, saveSettings } from './services/settingsService';
+import { DEFAULT_VAULT_PATH, getSettings, saveSettings, type Settings } from './services/settingsService';
 import { cleanupStaleServer, modelManager, openServerLog, startBuiltinServer, whisperServer } from './services/whisperRuntime';
 import { toStatusView } from './services/serverGate';
 import type { DownloadProgress } from './services/modelManager';
@@ -238,6 +238,36 @@ const runDownload = (requestedId: string, start: () => Promise<DownloadProgress>
     });
 };
 
+// Tray items show their shortcut when it is registered, and are greyed out like the header buttons.
+const TRAY_LABELS: Record<ShortcutAction, string> = {
+  quickNote: 'Quick note',
+  record: 'Record',
+  pause: 'Pause',
+  stop: 'Stop',
+};
+
+const trayLabel = (action: ShortcutAction) => {
+  const state = sessionStatus();
+  if (action === 'quickNote' && state.kind === 'quick-note' && isSessionActive()) return 'Stop quick note';
+  if (action === 'pause' && state.state === 'paused') return 'Resume';
+  return TRAY_LABELS[action];
+};
+
+const trayActionEnabled = (action: ShortcutAction) => {
+  const { state, kind } = sessionStatus();
+  const active = isSessionActive();
+  switch (action) {
+    case 'quickNote':
+      return !active || kind === 'quick-note';
+    case 'record':
+      return !active;
+    case 'pause':
+      return state === 'recording' || state === 'paused';
+    case 'stop':
+      return active;
+  }
+};
+
 const buildTrayMenu = () =>
   Menu.buildFromTemplate([
     {
@@ -250,10 +280,16 @@ const buildTrayMenu = () =>
         }
       },
     },
-    {
-      label: shortcutStatus.quickNote === 'ok' ? `Quick note (${displayShortcut(getSettings().shortcut)})` : 'Quick note',
-      click: () => void handleQuickNoteToggle(),
-    },
+    { type: 'separator' },
+    ...SHORTCUT_ACTIONS.map((action) => ({
+      label: trayLabel(action),
+      enabled: trayActionEnabled(action),
+      // Shown beside the item only: the global shortcut is registered separately.
+      accelerator: shortcutStatus[action] === 'ok' ? getSettings()[SHORTCUT_SETTINGS[action]] : undefined,
+      registerAccelerator: false,
+      click: () => shortcutHandlers[action](),
+    })),
+    { type: 'separator' },
     {
       label: 'Models…',
       click: showModelsWindow,
@@ -275,10 +311,7 @@ const createTray = () => {
     tray = new Tray(APP_ICON);
   } catch (error) {
     console.error('Error creating tray:', error);
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-    const { nativeImage } = require('electron');
-    const image = nativeImage.createEmpty();
-    tray = new Tray(image);
+    tray = new Tray(nativeImage.createEmpty());
   }
 
   tray.setContextMenu(buildTrayMenu());
@@ -304,9 +337,14 @@ app.on('ready', () => {
   applyShortcuts();
 
   whisperServer.onStatus(handleServerStatus);
+  let trayState = '';
   onSessionStatus((view) => {
     mainWindow?.webContents.send('session-status', view);
     updateTrayTooltip();
+    // The tray items follow the recording (Pause becomes Resume, Record greys out).
+    const next = `${view.state}:${view.kind}`;
+    if (next !== trayState) tray?.setContextMenu(buildTrayMenu());
+    trayState = next;
   });
   onSessionSegment((segment) => mainWindow?.webContents.send('session-segment', segment));
   onSessionBlock((event) => mainWindow?.webContents.send('session-block', event));
@@ -361,7 +399,7 @@ ipcMain.handle('get-settings', () => {
   return getSettings();
 });
 
-ipcMain.handle('save-settings', async (_event, settings: any) => {
+ipcMain.handle('save-settings', async (_event, settings: Partial<Settings>) => {
   const before = getSettings();
   if (typeof settings?.vaultPath === 'string' && settings.vaultPath !== before.vaultPath && isSessionActive()) {
     throw new Error('Stop recording before changing the vault.');

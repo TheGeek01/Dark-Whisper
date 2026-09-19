@@ -257,7 +257,7 @@ The header shows what is recording, or else what the transcription server is doi
 
 Right-click the Dark-Whisper icon in the system tray to:
 - **Show/Hide** - Toggle the application window
-- **Quick note (Ctrl+Q)** - Start or stop a quick note
+- **Quick note, Record, Pause/Resume, Stop** - The same actions as the header buttons and shortcuts, with the shortcuts shown beside them
 - **Models…** - Open the speech model manager
 - **Exit** - Close the application
 
@@ -636,7 +636,6 @@ Potential features for future releases:
 
 - [ ] Multi-language support in the UI
 - [ ] Recording history and replay
-- [ ] Custom hotkey profiles
 - [ ] Batch transcription
 - [ ] macOS and Linux support
 - [ ] Model choice per language
