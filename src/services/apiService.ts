@@ -77,7 +77,9 @@ class WhisperAPI {
       fileStream.destroy();
       fileStream = null;
 
-      if (response.data && response.data.text) {
+      // An empty string is a valid answer: with VAD on, a slice holding no speech
+      // transcribes to ''. Callers treat that as "heard nothing", not as a failure.
+      if (typeof response.data?.text === 'string') {
         return response.data.text;
       }
 
@@ -117,7 +119,9 @@ class WhisperAPI {
       fileStream.destroy();
       fileStream = null;
 
-      if (response.data && response.data.text) {
+      // An empty string is a valid answer: with VAD on, a slice holding no speech
+      // transcribes to ''. Callers treat that as "heard nothing", not as a failure.
+      if (typeof response.data?.text === 'string') {
         return response.data.text;
       }
 
