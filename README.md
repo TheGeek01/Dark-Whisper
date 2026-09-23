@@ -694,7 +694,11 @@ When reporting a transcription problem, please include the status line text and,
 
 ## Changelog
 
-### Version 1.5.0 (Latest)
+### Version 1.5.1 (Latest)
+
+- Refining a paragraph whose audio holds no speech no longer reports "Refinement failed … Invalid response from API". An empty transcription is read as silence heard, so the paragraph is removed when VAD is on and its live text is kept when it is off.
+
+### Version 1.5.0
 
 - Automatic updates: the app checks GitHub at start-up and every 6 hours, downloads a new version in the background, and offers **Update … — Restart** in the header and tray. Settings has **Update automatically** and **Check for updates**.
 - Pause mutes the microphone the recording uses (Settings → Session microphone), not the Windows default one.
